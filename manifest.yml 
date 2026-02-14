@@ -1,0 +1,13 @@
+applications:
+  - name: jumbo-ocr-srv
+    path: .
+    buildpacks:
+      - nodejs_buildpack
+    memory: 512M
+    disk_quota: 1024M
+    instances: 1
+    env:
+      NODE_ENV: production
+    services:
+      - jumbo-ocr-db
+    command: npm start

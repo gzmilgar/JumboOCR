@@ -2,35 +2,33 @@
   "name": "jumbo-ocr",
   "version": "1.0.0",
   "description": "Jumbo OCR CAP Service",
-  "repository": "<Add your repository here>",
-  "license": "UNLICENSED",
-  "private": true,
-  "dependencies": {
-    "@sap/cds": "^9",
-    "express": "^4"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "devDependencies": {
-    "@cap-js/cds-types": "^0.13.0",
-    "@cap-js/sqlite": "^2",
-    "@sap/cds-dk": ">=8",
-    "rimraf": "^6.0.1"
-  },
+  "main": "srv/server.js",
   "scripts": {
     "start": "cds-serve",
-    "undeploy": "cf undeploy ocr --delete-services --delete-service-keys --delete-service-brokers",
-    "build": "rimraf resources mta_archives && mbt build --mtar archive",
-    "deploy": "cf deploy mta_archives/archive.mtar --retries 1"
+    "build": "cds build --production"
+  },
+  "dependencies": {
+    "@sap/cds": "^7",
+    "better-sqlite3": "^12.6.2",
+    "express": "^4"
+  },
+  "devDependencies": {
+    "@sap/cds-dk": "^7"
   },
   "cds": {
     "requires": {
+      "db": {
+        "kind": "sqlite",
+        "credentials": {
+          "database": ":memory:"
+        }
+      },
       "auth": {
         "kind": "mocked"
-      },
-      "connectivity": true,
-      "destinations": true
+      }
     }
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
