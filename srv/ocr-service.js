@@ -360,7 +360,7 @@ module.exports = cds.service.impl(async function() {
     try {
       // Call S/4HANA API via handheldterminal_cap destination
       const response = await executeHttpRequest(
-        { destinationName: 'handheldterminal_cap' },
+        { destinationName: 'DS4_HTTPS' },
         {
           method: 'POST',
           url: '/sap/opu/odata/sap/API_SALES_ORDER_SRV/A_SalesOrder',
