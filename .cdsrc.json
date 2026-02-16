@@ -1,5 +1,7 @@
 {
   "requires": {
-    "auth": "mocked"
+    "auth": {
+      "kind": "dummy"
+    }
   }
 }

@@ -7,10 +7,11 @@ async function start() {
   try {
     console.log('Starting CAP server...');
     
-    // Create Express app
+    // Disable authentication
+    cds.env.requires.auth = { kind: 'dummy' };
+    
     const app = express();
     
-    // Health endpoints
     app.get('/health', (req, res) => {
       res.status(200).send('OK');
     });
@@ -23,18 +24,16 @@ async function start() {
       });
     });
     
-    // Serve CDS services
     await cds.serve('srv/ocr-service').in(app);
     
-    // Start listening
     app.listen(PORT, () => {
-      console.log(`Server listening on port ${PORT}`);
-      console.log(`Health check: http://localhost:${PORT}/health`);
-      console.log(`OData service: http://localhost:${PORT}/odata/v4/ocr`);
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`Health: http://localhost:${PORT}/health`);
+      console.log(`OData: http://localhost:${PORT}/odata/v4/ocr`);
     });
     
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start:', error);
     process.exit(1);
   }
 }
