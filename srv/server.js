@@ -7,7 +7,6 @@ async function start() {
   try {
     console.log('Starting CAP server...');
     
-    // Disable authentication
     cds.env.requires.auth = { kind: 'dummy' };
     
     const app = express();
@@ -27,13 +26,11 @@ async function start() {
     await cds.serve('srv/ocr-service').in(app);
     
     app.listen(PORT, () => {
-      console.log(`✅ Server running on port ${PORT}`);
-      console.log(`Health: http://localhost:${PORT}/health`);
-      console.log(`OData: http://localhost:${PORT}/odata/v4/ocr`);
+      console.log('Server running on port ' + PORT);
     });
     
   } catch (error) {
-    console.error('❌ Failed to start:', error);
+    console.error('Failed to start:', error);
     process.exit(1);
   }
 }
