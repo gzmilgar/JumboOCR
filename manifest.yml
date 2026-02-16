@@ -17,12 +17,12 @@ applications:
       S4HANA_PAYMENT_TERMS: "Z000"
       S4HANA_PLANT: "DODY"
     command: npm start
-```
+
 
 ---
 
 ## 6️⃣ **.gitignore**
-```
+
 node_modules/
 *.log
 .env
