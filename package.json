@@ -2,9 +2,8 @@
   "name": "jumbo-ocr",
   "version": "1.0.0",
   "description": "CAP proxy service for OCR to Sales Order automation",
-  "main": "server.js",
   "scripts": {
-    "start": "node srv/server.js"
+    "start": "cds-serve"
   },
   "dependencies": {
     "@sap/cds": "^7.0.0",
@@ -14,5 +13,10 @@
   },
   "engines": {
     "node": "^18 || ^20"
+  },
+  "cds": {
+    "requires": {
+      "auth": "mocked"
+    }
   }
 }
