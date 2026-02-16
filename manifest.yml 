@@ -10,13 +10,12 @@ applications:
       NODE_ENV: production
       
       # S/4HANA Configuration
-      S4HANA_SALES_ORG: "1710"
-      S4HANA_DIST_CHANNEL: "10"
+      S4HANA_SALES_ORG: "D106"
+      S4HANA_DIST_CHANNEL: "02"
       S4HANA_DIVISION: "00"
-      S4HANA_SO_TYPE: "OR"
-      
-      # Destination will be resolved via BTP
-      # No need to specify URL - handheldterminal_cap handles it
+      S4HANA_SO_TYPE: "1SDS"
+      S4HANA_PAYMENT_TERMS: "Z000"
+      S4HANA_PLANT: "DODY"
     command: npm start
 ```
 
@@ -31,3 +30,4 @@ node_modules/
 mta_archives/
 gen/
 .cdsrc-private.json
+package-lock.json

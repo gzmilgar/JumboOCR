@@ -1,62 +1,56 @@
 # Jumbo OCR to Sales Order Automation
 
-CAP proxy service for creating S/4HANA Sales Orders from Document AI extracted Purchase Orders.
+CAP proxy service that creates S/4HANA Sales Orders from Document AI extracted Purchase Orders.
 
-## Architecture
+## 📋 Architecture
 ```
-Email (PDF) → Document AI → SAP Build → CAP Service → S/4HANA
-                                           ↓
-                                   handheldterminal_cap destination
+Email (PDF) → Document AI → SAP Build Process Automation → CAP Service → S/4HANA
+                                                               ↓
+                                                    handheldterminal_cap
 ```
 
-## Features
+## 🎯 Features
 
-- ✅ Parse Document AI extraction data
+- ✅ Parse Document AI extraction data (headerFields + lineItems)
 - ✅ Map PO fields to S/4HANA Sales Order format
-- ✅ Create Sales Orders via existing destination
+- ✅ Create Sales Orders via BTP destination (handheldterminal_cap)
 - ✅ No local database (stateless proxy)
+- ✅ No customer/material mapping (direct from PDF)
 - ✅ Validation before S/4HANA call
-- ✅ Error handling and logging
+- ✅ Comprehensive error handling and logging
 
-## Prerequisites
+## 🔧 Prerequisites
 
-- BTP Destination: `handheldterminal_cap` (already configured)
-- S/4HANA API: `API_SALES_ORDER_SRV`
-- Cloud Foundry access
+- **BTP Destination**: `handheldterminal_cap` (already configured)
+- **S/4HANA API**: `API_SALES_ORDER_SRV`
+- **Cloud Foundry**: CLI and access
+- **Node.js**: v18 or v20
 
-## Setup
+## 🚀 Setup
 
 ### 1. Install Dependencies
 ```bash
 npm install
 ```
 
-### 2. Update Mappings
+### 2. Verify BTP Destination
 
-Edit `srv/ocr-service.js`:
+Ensure `handheldterminal_cap` destination exists in BTP Cockpit:
+- Name: `handheldterminal_cap`
+- Type: HTTP
+- Proxy Type: OnPremise
+- Authentication: BasicAuthentication
 
-**Customer Mapping (line ~300):**
-```javascript
-const customerMapping = {
-  "070073": "0001000015",  // Your actual store → customer mappings
-  "070074": "0001000016"
-};
-```
-
-**Material Mapping (line ~320):**
-```javascript
-// Update if material codes need transformation
-```
-
-### 3. Deploy
+### 3. Deploy to Cloud Foundry
 ```bash
-cf login
+cf login -a https://api.cf.eu10-004.hana.ondemand.com
+cf target -o "Jumbo Electronics Company Limited LLC_jumbo-dev-rhvtsopa" -s Jumbo_Dev_Space
 cf push jumbo-ocr-srv
 ```
 
-## API Endpoints
+## 📡 API Endpoints
 
-### Create Sales Order
+### Create Sales Order from Extraction
 ```http
 POST /odata/v4/ocr/createSalesOrderFromExtraction
 Content-Type: application/json
@@ -66,7 +60,16 @@ Content-Type: application/json
 }
 ```
 
-### Validate Extraction
+**Response:**
+```json
+{
+  "salesOrderNumber": "0000012345",
+  "message": "Sales Order 0000012345 created successfully from PO 007-26008851",
+  "success": true
+}
+```
+
+### Validate Extraction Data
 ```http
 POST /odata/v4/ocr/validateExtraction
 Content-Type: application/json
@@ -76,49 +79,145 @@ Content-Type: application/json
 }
 ```
 
+**Response:**
+```json
+{
+  "valid": true,
+  "errors": []
+}
+```
+
 ### Health Check
 ```http
 GET /health
 GET /ping
 ```
 
-## Configuration
+## 🔄 Data Flow
+```
+Document AI Extraction
+{
+  "extraction": {
+    "headerFields": [
+      {"name": "purchaseOrder", "value": "007-26008851"},
+      {"name": "receiverId", "value": "1100019"},
+      {"name": "documentDate", "value": "2026-02-05"},
+      {"name": "currencyCode", "value": "AED"}
+    ],
+    "lineItems": [[
+      {"name": "customerMaterialNumber", "value": "470521-01"},
+      {"name": "quantity", "value": 2},
+      {"name": "unitPrice", "value": 1765.35}
+    ]]
+  }
+}
+        ↓
+CAP Service Mapping
+        ↓
+S/4HANA Sales Order
+{
+  "SalesOrderType": "1SDS",
+  "SoldToParty": "1100019",
+  "PurchaseOrderByCustomer": "007-26008851",
+  "to_Partner": [...],
+  "to_Item": [{
+    "MaterialByCustomer": "470521-01",
+    "RequestedQuantity": "2"
+  }]
+}
+```
 
-Environment variables in `manifest.yml`:
+## ⚙️ Configuration
 
-- `S4HANA_SALES_ORG`: Sales Organization (default: 1710)
-- `S4HANA_DIST_CHANNEL`: Distribution Channel (default: 10)
-- `S4HANA_DIVISION`: Division (default: 00)
-- `S4HANA_SO_TYPE`: Sales Order Type (default: OR)
+Environment variables (in `manifest.yml`):
 
-## Destination
+| Variable | Default | Description |
+|----------|---------|-------------|
+| S4HANA_SALES_ORG | D106 | Sales Organization |
+| S4HANA_DIST_CHANNEL | 02 | Distribution Channel |
+| S4HANA_DIVISION | 00 | Division |
+| S4HANA_SO_TYPE | 1SDS | Sales Order Type |
+| S4HANA_PAYMENT_TERMS | Z000 | Payment Terms |
+| S4HANA_PLANT | DODY | Production Plant |
 
-Uses existing destination: `handheldterminal_cap`
+## 📊 Document AI Schema Mapping
 
-Properties:
-- WebIDEEnabled = true
-- WebIDEUsage = odata_gen
-- HTML5.DynamicDestination = true
-- HTML5.Timeout = 60000
-- sap.applicationdevelopment.actions.enabled = true
-- sap.build.usage = CAP
+### Header Fields
 
-## TODO
+| Document AI Field | S/4HANA Field |
+|-------------------|---------------|
+| purchaseOrder | PurchaseOrderByCustomer |
+| receiverId | SoldToParty |
+| documentDate | CustomerPurchaseOrderDate |
+| deliveryAdress | to_Partner.to_Address |
+| currencyCode | TransactionCurrency |
 
-- [ ] Implement real customer mapping logic
-- [ ] Implement real material mapping logic
-- [ ] Add retry logic for transient failures
-- [ ] Add monitoring/alerting
-- [ ] Add unit tests
+### Line Item Fields
 
-## Troubleshooting
+| Document AI Field | S/4HANA Field |
+|-------------------|---------------|
+| customerMaterialNumber | MaterialByCustomer |
+| quantity | RequestedQuantity |
+| unitPrice | to_PricingElement[ZMAN] |
+| DiscValue | to_PricingElement[ZRDV] |
+| VATValue | to_PricingElement[ZVAT] |
 
-Check logs:
+## 🐛 Troubleshooting
+
+### Check Logs
 ```bash
 cf logs jumbo-ocr-srv --recent
 ```
 
-Test health:
+### Test Health
 ```bash
 curl https://jumbo-ocr-srv.cfapps.eu10-004.hana.ondemand.com/health
 ```
+
+### Common Issues
+
+1. **Token Expired**: Re-login with `cf login`
+2. **Destination Not Found**: Check `handheldterminal_cap` exists in BTP
+3. **S/4HANA Error**: Check logs for detailed error message
+4. **Validation Failed**: Ensure all required fields are in extraction data
+
+## 📝 Notes
+
+- **No Database**: Service is stateless, no data persistence
+- **No Mapping**: Customer and material numbers used directly from PDF
+- **Validation**: Data validated before S/4HANA call
+- **Error Handling**: Comprehensive error messages for debugging
+
+## 🔗 Related Components
+
+- **Document AI**: Jumbo_OCR_purchaseOrder_schema_with_numbers
+- **SAP Build**: CarrefourOCRAutomation workflow
+- **Outlook**: JumboOCRDemoCarrefour folder
+- **Destination**: handheldterminal_cap (OnPremise → S/4HANA)
+
+## 📞 Support
+
+For issues or questions, check:
+1. Cloud Foundry logs: `cf logs jumbo-ocr-srv --recent`
+2. BTP destination configuration
+3. S/4HANA API connectivity
+
+---
+
+**Version**: 1.0.0  
+**Last Updated**: February 2026
+```
+
+---
+
+## 🗂️ PROJE YAPISI
+```
+JumboOCR/
+├── srv/
+│   ├── ocr-service.cds          ✅
+│   ├── ocr-service.js           ✅
+│   └── server.js                ✅
+├── package.json                  ✅
+├── manifest.yml                  ✅
+├── .gitignore                    ✅
+└── README.md                     ✅

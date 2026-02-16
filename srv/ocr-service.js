@@ -16,34 +16,27 @@ module.exports = cds.service.impl(async function() {
         extractionData = req.data.extractionData;
       }
       
-      console.log('Parsed extractionData:', JSON.stringify(extractionData, null, 2));
+      console.log('Document AI Input:', JSON.stringify(extractionData, null, 2));
       
-      // Validate structure
-      if (!extractionData || !extractionData.extraction) {
-        throw new Error('Invalid input: extraction data missing');
+      if (!extractionData?.extraction?.headerFields) {
+        throw new Error('Invalid extraction data structure');
       }
       
-      const extraction = extractionData.extraction;
+      // Map Document AI format to internal format
+      const headerData = mapHeaderFields(extractionData.extraction.headerFields);
+      const lineItems = mapLineItems(extractionData.extraction.lineItems);
       
-      if (!extraction.headerFields) {
-        throw new Error('Invalid input: headerFields missing');
-      }
+      console.log('Mapped Header:', JSON.stringify(headerData, null, 2));
+      console.log('Mapped Line Items:', JSON.stringify(lineItems, null, 2));
       
-      // Map Document AI data to S/4HANA format
-      const headerData = mapHeaderFields(extraction.headerFields);
-      const lineItems = mapLineItems(extraction.lineItems);
-      
-      console.log('Mapped header data:', JSON.stringify(headerData, null, 2));
-      console.log('Mapped line items:', JSON.stringify(lineItems, null, 2));
-      
-      // Validate before calling S/4HANA
+      // Validate
       validateBeforeS4HANA(headerData, lineItems);
       
-      // Create Sales Order in S/4HANA
-      console.log('Calling S/4HANA Sales Order API...');
+      // Create Sales Order
+      console.log('Creating S/4HANA Sales Order...');
       const salesOrderNumber = await createSalesOrderInS4HANA(headerData, lineItems);
       
-      console.log('✅ Sales Order created successfully:', salesOrderNumber);
+      console.log('✅ Sales Order created:', salesOrderNumber);
       
       return {
         salesOrderNumber: salesOrderNumber,
@@ -52,12 +45,12 @@ module.exports = cds.service.impl(async function() {
       };
       
     } catch (error) {
-      console.error('❌ Error in createSalesOrderFromExtraction:', error);
-      console.error('Stack trace:', error.stack);
+      console.error('❌ Error:', error.message);
+      console.error('Stack:', error.stack);
       
       return {
         salesOrderNumber: null,
-        message: `Failed to create Sales Order: ${error.message}`,
+        message: `Failed: ${error.message}`,
         success: false
       };
     }
@@ -76,43 +69,35 @@ module.exports = cds.service.impl(async function() {
       
       const errors = [];
       
-      // Check structure
       if (!extractionData?.extraction?.headerFields) {
-        errors.push('Missing header fields in extraction data');
+        errors.push('Missing header fields');
       }
       
       if (!extractionData?.extraction?.lineItems || extractionData.extraction.lineItems.length === 0) {
-        errors.push('Missing or empty line items');
+        errors.push('Missing line items');
       }
       
-      // Validate header data
       if (extractionData?.extraction?.headerFields) {
         const headerData = mapHeaderFields(extractionData.extraction.headerFields);
         
         if (!headerData.receiverId) {
-          errors.push('Missing customer/receiver ID');
+          errors.push('Missing customer number (receiverId)');
         }
         
         if (!headerData.documentNumber) {
           errors.push('Missing PO number');
         }
-        
-        if (!headerData.currencyCode) {
-          errors.push('Missing currency code');
-        }
       }
       
-      // Validate line items
       if (extractionData?.extraction?.lineItems) {
         const lineItems = mapLineItems(extractionData.extraction.lineItems);
         
-        lineItems.forEach((item, index) => {
-          if (!item.materialNumber && !item.customerMaterialNumber) {
-            errors.push(`Line ${index + 1}: Missing material number`);
+        lineItems.forEach((item, i) => {
+          if (!item.customerMaterialNumber && !item.materialNumber) {
+            errors.push(`Line ${i+1}: Missing material`);
           }
-          
           if (!item.quantity || item.quantity <= 0) {
-            errors.push(`Line ${index + 1}: Invalid or missing quantity`);
+            errors.push(`Line ${i+1}: Invalid quantity`);
           }
         });
       }
@@ -149,6 +134,7 @@ module.exports = cds.service.impl(async function() {
             break;
           case 'vendorNo':
             data.senderId = field.value;
+            data.senderName = field.value;
             break;
           case 'vendorAdress':
             data.vendorAddress = field.value;
@@ -211,36 +197,29 @@ module.exports = cds.service.impl(async function() {
   }
   
   /**
-   * Validate data before calling S/4HANA
+   * Validate data before S/4HANA call
    */
   function validateBeforeS4HANA(headerData, lineItems) {
     const errors = [];
     
-    // Required header fields
     if (!headerData.receiverId) {
-      errors.push('Customer ID (receiverId) is required');
+      errors.push('Customer number (receiverId) is required');
     }
     
     if (!headerData.documentNumber) {
       errors.push('PO number (documentNumber) is required');
     }
     
-    if (!headerData.currencyCode) {
-      errors.push('Currency code is required');
-    }
-    
-    // Line items validation
     if (!lineItems || lineItems.length === 0) {
       errors.push('At least one line item is required');
     }
     
-    lineItems.forEach((item, index) => {
-      if (!item.materialNumber && !item.customerMaterialNumber) {
-        errors.push(`Line ${index + 1}: Material number is required`);
+    lineItems.forEach((item, i) => {
+      if (!item.customerMaterialNumber && !item.materialNumber) {
+        errors.push(`Line ${i+1}: Material number is required`);
       }
-      
       if (!item.quantity || item.quantity <= 0) {
-        errors.push(`Line ${index + 1}: Valid quantity is required`);
+        errors.push(`Line ${i+1}: Valid quantity is required`);
       }
     });
     
@@ -253,56 +232,144 @@ module.exports = cds.service.impl(async function() {
    * Create Sales Order in S/4HANA via handheldterminal_cap destination
    */
   async function createSalesOrderInS4HANA(headerData, lineItems) {
-    // S/4HANA configuration from environment variables
-    const SALES_ORG = process.env.S4HANA_SALES_ORG || "1710";
-    const DISTRIBUTION_CHANNEL = process.env.S4HANA_DIST_CHANNEL || "10";
-    const DIVISION = process.env.S4HANA_DIVISION || "00";
-    const SALES_ORDER_TYPE = process.env.S4HANA_SO_TYPE || "OR";
-    
-    // Build S/4HANA Sales Order payload
-    const salesOrderPayload = {
-      SalesOrderType: SALES_ORDER_TYPE,
-      SalesOrganization: SALES_ORG,
-      DistributionChannel: DISTRIBUTION_CHANNEL,
-      OrganizationDivision: DIVISION,
-      
-      // Customer number - mapped from receiverId
-      SoldToParty: mapCustomerNumber(headerData.receiverId),
-      
-      // PO reference
-      PurchaseOrderByCustomer: headerData.documentNumber,
-      
-      // Delivery date
-      RequestedDeliveryDate: formatDateForS4HANA(headerData.deliveryDate || headerData.validity),
-      
-      // Currency
-      TransactionCurrency: headerData.currencyCode || "AED",
-      
-      // Line items
-      to_Item: lineItems.map((item, index) => ({
-        SalesOrderItem: String((index + 1) * 10).padStart(6, '0'), // 000010, 000020, etc.
-        Material: mapMaterialNumber(item.materialNumber || item.customerMaterialNumber),
-        OrderQuantity: String(item.quantity || 1),
-        OrderQuantityUnit: item.unitOfMeasure || "EA",
-        ItemDescription: item.description ? item.description.substring(0, 40) : ""
-      }))
+    // Configuration from environment variables
+    const CONFIG = {
+      salesOrg: process.env.S4HANA_SALES_ORG || "D106",
+      distChannel: process.env.S4HANA_DIST_CHANNEL || "02",
+      division: process.env.S4HANA_DIVISION || "00",
+      soType: process.env.S4HANA_SO_TYPE || "1SDS",
+      paymentTerms: process.env.S4HANA_PAYMENT_TERMS || "Z000",
+      plant: process.env.S4HANA_PLANT || "DODY"
     };
     
-    console.log('S/4HANA Sales Order Payload:', JSON.stringify(salesOrderPayload, null, 2));
+    // Customer number directly from PDF (no mapping needed)
+    const customerNumber = headerData.receiverId;
+    
+    console.log(`Using customer number from PDF: ${customerNumber}`);
+    
+    // Parse address from shipToAddress field
+    const address = parseAddress(headerData.shipToAddress);
+    
+    // Build S/4HANA Sales Order payload
+    const payload = {
+      SalesOrderType: CONFIG.soType,
+      CustomerPaymentTerms: CONFIG.paymentTerms,
+      SalesOrganization: CONFIG.salesOrg,
+      DistributionChannel: CONFIG.distChannel,
+      OrganizationDivision: CONFIG.division,
+      
+      // Dates
+      CustomerPurchaseOrderDate: formatDateTime(headerData.documentDate),
+      PurchaseOrderByCustomer: headerData.documentNumber,
+      
+      // Customer (directly from PDF)
+      SoldToParty: customerNumber,
+      
+      // Partner Functions (WE=Ship-to, RE=Bill-to)
+      to_Partner: [
+        {
+          PartnerFunction: "WE",
+          Customer: customerNumber,
+          to_Address: [{
+            OrganizationName1: address.name || headerData.senderName || "",
+            Country: "AE",
+            Region: "",
+            CityName: address.city || "Dubai",
+            StreetName: address.street || "",
+            StreetPrefixName1: address.streetPrefix || "",
+            EmailAddress: address.email || "",
+            PhoneNumber: address.phone || "",
+            MobileNumber: address.mobile || address.phone || ""
+          }]
+        },
+        {
+          PartnerFunction: "RE",
+          Customer: customerNumber,
+          to_Address: [{
+            OrganizationName1: address.name || headerData.senderName || "",
+            Country: "AE",
+            Region: "",
+            CityName: address.city || "Dubai",
+            StreetName: address.street || "",
+            StreetPrefixName1: address.streetPrefix || "",
+            EmailAddress: address.email || "",
+            PhoneNumber: address.phone || "",
+            MobileNumber: address.mobile || address.phone || ""
+          }]
+        }
+      ],
+      
+      // Line items
+      to_Item: lineItems.map((item, index) => {
+        const linePayload = {
+          SalesOrderItem: String(index + 1),
+          
+          // Material number directly from PDF (no mapping needed)
+          MaterialByCustomer: item.customerMaterialNumber || item.materialNumber,
+          
+          ProductionPlant: CONFIG.plant,
+          RequestedQuantity: String(item.quantity || 1)
+        };
+        
+        // Add pricing elements if available
+        const pricingElements = [];
+        
+        // Base price (ZMAN)
+        if (item.unitPrice) {
+          pricingElements.push({
+            ConditionType: "ZMAN",
+            ConditionRateValue: String(item.unitPrice),
+            ConditionQuantityUnit: item.unitOfMeasure || "EA",
+            ConditionQuantity: "1",
+            ConditionCurrency: headerData.currencyCode || "AED"
+          });
+        }
+        
+        // Discount (ZRDV)
+        if (item.discountValue) {
+          pricingElements.push({
+            ConditionType: "ZRDV",
+            ConditionRateValue: String(item.discountValue),
+            ConditionQuantityUnit: item.unitOfMeasure || "EA",
+            ConditionQuantity: "1",
+            ConditionCurrency: headerData.currencyCode || "AED"
+          });
+        }
+        
+        // VAT (ZVAT)
+        if (item.vatValue) {
+          pricingElements.push({
+            ConditionType: "ZVAT",
+            ConditionRateValue: String(item.vatValue),
+            ConditionQuantityUnit: item.unitOfMeasure || "EA",
+            ConditionQuantity: "1",
+            ConditionCurrency: headerData.currencyCode || "AED"
+          });
+        }
+        
+        if (pricingElements.length > 0) {
+          linePayload.to_PricingElement = pricingElements;
+        }
+        
+        return linePayload;
+      })
+    };
+    
+    console.log('S/4HANA Sales Order Payload:', JSON.stringify(payload, null, 2));
     
     try {
-      // ✅ Call S/4HANA via handheldterminal_cap destination
+      // Call S/4HANA API via handheldterminal_cap destination
       const response = await executeHttpRequest(
         { destinationName: 'handheldterminal_cap' },
         {
           method: 'POST',
           url: '/sap/opu/odata/sap/API_SALES_ORDER_SRV/A_SalesOrder',
-          data: salesOrderPayload,
+          data: payload,
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
-          timeout: 60000  // 60 seconds (matches HTML5.Timeout)
+          timeout: 60000
         }
       );
       
@@ -321,79 +388,58 @@ module.exports = cds.service.impl(async function() {
       console.error('S/4HANA API Error:', error);
       
       // Parse S/4HANA error message
-      let errorMessage = 'Unknown error';
+      let errorMsg = 'Unknown error';
       
       if (error.response?.data?.error?.message?.value) {
-        errorMessage = error.response.data.error.message.value;
+        errorMsg = error.response.data.error.message.value;
       } else if (error.response?.data?.error?.innererror?.errordetails) {
-        const details = error.response.data.error.innererror.errordetails;
-        errorMessage = details.map(d => d.message).join('; ');
+        errorMsg = error.response.data.error.innererror.errordetails
+          .map(d => d.message).join('; ');
       } else if (error.message) {
-        errorMessage = error.message;
+        errorMsg = error.message;
       }
       
-      throw new Error(`S/4HANA Sales Order creation failed: ${errorMessage}`);
+      throw new Error(`S/4HANA Sales Order creation failed: ${errorMsg}`);
     }
   }
   
   /**
-   * Map PO receiverId to S/4HANA customer number
-   * TODO: Implement real mapping logic based on your system
+   * Parse address string from Document AI
+   * Example: "Sidra Village, Villa 39, Umm Suqeim 2, Dubai"
    */
-  function mapCustomerNumber(receiverId) {
-    if (!receiverId) {
-      throw new Error('Customer ID (receiverId) is required');
+  function parseAddress(addressString) {
+    if (!addressString) {
+      return {
+        name: "",
+        street: "",
+        streetPrefix: "",
+        city: "Dubai",
+        email: "",
+        phone: "",
+        mobile: ""
+      };
     }
     
-    // TODO: Replace with real mapping
-    // Option 1: Direct mapping (if receiverId is already customer number)
-    // return receiverId;
+    // Simple comma-separated parsing
+    const parts = addressString.split(',').map(p => p.trim());
     
-    // Option 2: Mapping table (if receiverId is store code)
-    const customerMapping = {
-      "070073": "0001000015",  // Store ID → Customer Number
-      "070074": "0001000016",
-      "070075": "0001000017"
+    return {
+      name: parts[0] || "",
+      street: parts[1] || "",
+      streetPrefix: parts[2] || "",
+      city: parts[3] || "Dubai",
+      email: "",
+      phone: "",
+      mobile: ""
     };
-    
-    const mappedCustomer = customerMapping[receiverId];
-    
-    if (!mappedCustomer) {
-      console.warn(`No mapping found for receiverId: ${receiverId}, using as-is`);
-      return receiverId;
-    }
-    
-    console.log(`Customer mapping: ${receiverId} → ${mappedCustomer}`);
-    return mappedCustomer;
   }
   
   /**
-   * Map material number to S/4HANA format
-   * TODO: Implement real mapping logic based on your system
+   * Format datetime for S/4HANA (ISO 8601)
    */
-  function mapMaterialNumber(materialCode) {
-    if (!materialCode) {
-      throw new Error('Material number is required');
-    }
-    
-    // TODO: Replace with real mapping if needed
-    // Option 1: Direct use (if material codes match S/4HANA)
-    // Option 2: Padding with leading zeros (common for SAP)
-    const paddedMaterial = String(materialCode).padStart(18, '0');
-    
-    console.log(`Material mapping: ${materialCode} → ${paddedMaterial}`);
-    return paddedMaterial;
-  }
-  
-  /**
-   * Format date for S/4HANA (YYYY-MM-DD)
-   */
-  function formatDateForS4HANA(dateString) {
+  function formatDateTime(dateString) {
     if (!dateString) {
-      // Default to today + 7 days for delivery
-      const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 7);
-      return futureDate.toISOString().split('T')[0];
+      return new Date().toISOString();
     }
     
     try {
@@ -401,10 +447,10 @@ module.exports = cds.service.impl(async function() {
       if (isNaN(date.getTime())) {
         throw new Error('Invalid date');
       }
-      return date.toISOString().split('T')[0];
+      return date.toISOString();
     } catch (e) {
-      console.error('Date formatting error:', e);
-      return new Date().toISOString().split('T')[0];
+      console.error('DateTime formatting error:', e);
+      return new Date().toISOString();
     }
   }
 });
