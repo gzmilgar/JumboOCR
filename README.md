@@ -1,25 +1,124 @@
-# Getting Started
+# Jumbo OCR to Sales Order Automation
 
-Welcome to your new project.
+CAP proxy service for creating S/4HANA Sales Orders from Document AI extracted Purchase Orders.
 
-It contains these folders and files, following our recommended project layout:
+## Architecture
+```
+Email (PDF) → Document AI → SAP Build → CAP Service → S/4HANA
+                                           ↓
+                                   handheldterminal_cap destination
+```
 
-File or Folder | Purpose
----------|----------
-`app/` | content for UI frontends goes here
-`db/` | your domain models and data go here
-`srv/` | your service models and code go here
-`package.json` | project metadata and configuration
-`readme.md` | this getting started guide
+## Features
 
+- ✅ Parse Document AI extraction data
+- ✅ Map PO fields to S/4HANA Sales Order format
+- ✅ Create Sales Orders via existing destination
+- ✅ No local database (stateless proxy)
+- ✅ Validation before S/4HANA call
+- ✅ Error handling and logging
 
-## Next Steps
+## Prerequisites
 
-- Open a new terminal and run `cds watch`
-- (in VS Code simply choose _**Terminal** > Run Task > cds watch_)
-- Start adding content, for example, a [db/schema.cds](db/schema.cds).
+- BTP Destination: `handheldterminal_cap` (already configured)
+- S/4HANA API: `API_SALES_ORDER_SRV`
+- Cloud Foundry access
 
+## Setup
 
-## Learn More
+### 1. Install Dependencies
+```bash
+npm install
+```
 
-Learn more at https://cap.cloud.sap/docs/get-started/.
+### 2. Update Mappings
+
+Edit `srv/ocr-service.js`:
+
+**Customer Mapping (line ~300):**
+```javascript
+const customerMapping = {
+  "070073": "0001000015",  // Your actual store → customer mappings
+  "070074": "0001000016"
+};
+```
+
+**Material Mapping (line ~320):**
+```javascript
+// Update if material codes need transformation
+```
+
+### 3. Deploy
+```bash
+cf login
+cf push jumbo-ocr-srv
+```
+
+## API Endpoints
+
+### Create Sales Order
+```http
+POST /odata/v4/ocr/createSalesOrderFromExtraction
+Content-Type: application/json
+
+{
+  "extractionData": "{\"extraction\":{\"headerFields\":[...],\"lineItems\":[...]}}"
+}
+```
+
+### Validate Extraction
+```http
+POST /odata/v4/ocr/validateExtraction
+Content-Type: application/json
+
+{
+  "extractionData": "{\"extraction\":{...}}"
+}
+```
+
+### Health Check
+```http
+GET /health
+GET /ping
+```
+
+## Configuration
+
+Environment variables in `manifest.yml`:
+
+- `S4HANA_SALES_ORG`: Sales Organization (default: 1710)
+- `S4HANA_DIST_CHANNEL`: Distribution Channel (default: 10)
+- `S4HANA_DIVISION`: Division (default: 00)
+- `S4HANA_SO_TYPE`: Sales Order Type (default: OR)
+
+## Destination
+
+Uses existing destination: `handheldterminal_cap`
+
+Properties:
+- WebIDEEnabled = true
+- WebIDEUsage = odata_gen
+- HTML5.DynamicDestination = true
+- HTML5.Timeout = 60000
+- sap.applicationdevelopment.actions.enabled = true
+- sap.build.usage = CAP
+
+## TODO
+
+- [ ] Implement real customer mapping logic
+- [ ] Implement real material mapping logic
+- [ ] Add retry logic for transient failures
+- [ ] Add monitoring/alerting
+- [ ] Add unit tests
+
+## Troubleshooting
+
+Check logs:
+```bash
+cf logs jumbo-ocr-srv --recent
+```
+
+Test health:
+```bash
+curl https://jumbo-ocr-srv.cfapps.eu10-004.hana.ondemand.com/health
+```

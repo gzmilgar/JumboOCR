@@ -8,6 +8,26 @@ applications:
     instances: 1
     env:
       NODE_ENV: production
-    services:
-      - jumbo-ocr-db
+      
+      # S/4HANA Configuration
+      S4HANA_SALES_ORG: "1710"
+      S4HANA_DIST_CHANNEL: "10"
+      S4HANA_DIVISION: "00"
+      S4HANA_SO_TYPE: "OR"
+      
+      # Destination will be resolved via BTP
+      # No need to specify URL - handheldterminal_cap handles it
     command: npm start
+```
+
+---
+
+## 6️⃣ **.gitignore**
+```
+node_modules/
+*.log
+.env
+.DS_Store
+mta_archives/
+gen/
+.cdsrc-private.json

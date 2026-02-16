@@ -1,34 +1,18 @@
 {
   "name": "jumbo-ocr",
   "version": "1.0.0",
-  "description": "Jumbo OCR CAP Service",
-  "main": "srv/server.js",
+  "description": "CAP proxy service for OCR to Sales Order automation",
+  "main": "server.js",
   "scripts": {
-    "start": "cds-serve",
-    "build": "cds build --production"
+    "start": "node srv/server.js"
   },
   "dependencies": {
-    "@sap/cds": "^7",
-    "better-sqlite3": "^12.6.2",
-    "express": "^4"
-  },
-  "devDependencies": {
-    "@sap/cds-dk": "^7"
-  },
-  "cds": {
-    "requires": {
-      "db": {
-        "kind": "sqlite",
-        "credentials": {
-          "database": ":memory:"
-        }
-      },
-      "auth": {
-        "kind": "mocked"
-      }
-    }
+    "@sap/cds": "^7.0.0",
+    "@sap-cloud-sdk/http-client": "^3.0.0",
+    "@sap-cloud-sdk/connectivity": "^3.0.0",
+    "express": "^4.18.2"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "^18 || ^20"
   }
 }
