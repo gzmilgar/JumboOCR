@@ -7,9 +7,9 @@
     "start": "node srv/server.js"
   },
   "dependencies": {
-    "@sap/cds": "^7.0.0",
-    "@sap-cloud-sdk/http-client": "^3.0.0",
     "@sap-cloud-sdk/connectivity": "^3.0.0",
+    "@sap-cloud-sdk/http-client": "^3.0.0",
+    "@sap/cds": "^9.7.1",
     "express": "^4.18.2"
   },
   "engines": {
