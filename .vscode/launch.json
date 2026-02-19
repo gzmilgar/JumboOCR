@@ -2,15 +2,27 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "type": "node",
+      "name": "cds serve",
       "request": "launch",
-      "name": "Debug CAP Server",
-      "program": "${workspaceFolder}/srv/server.js",
-      "env": {
-        "PORT": "4004"
-      },
-      "console": "integratedTerminal",
-      "skipFiles": ["<node_internals>/**"]
+      "type": "node",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "cds",
+      "args": [
+        "serve",
+        "--with-mocks",
+        "--in-memory?"
+      ],
+      "skipFiles": [
+        "<node_internals>/**"
+      ]
+    },
+    {
+      "name": "Attach to CF jumbo-ocr-srv (Port 9229)",
+      "port": 9229,
+      "request": "attach",
+      "type": "node",
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/home/vcap/app"
     }
   ]
 }
