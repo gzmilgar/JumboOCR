@@ -1,21 +1,16 @@
 {
   "version": "0.2.0",
   "configurations": [
-    
     {
-      "name": "cds serve",
-      "request": "launch",
       "type": "node",
-      "cwd": "${workspaceFolder}",
-      "runtimeExecutable": "cds",
-      "args": [
-        "serve",
-        "--with-mocks",
-        "--in-memory?"
-      ],
-      "skipFiles": [
-        "<node_internals>/**"
-      ]
+      "request": "launch",
+      "name": "Debug CAP Server",
+      "program": "${workspaceFolder}/srv/server.js",
+      "env": {
+        "PORT": "4004"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
     }
   ]
 }
