@@ -8,12 +8,6 @@ applications:
     instances: 1
     env:
       NODE_ENV: production
-      S4HANA_SALES_ORG: "D106"
-      S4HANA_DIST_CHANNEL: "02"
-      S4HANA_DIVISION: "00"
-      S4HANA_SO_TYPE: "1SDS"
-      S4HANA_PAYMENT_TERMS: "Z000"
-      S4HANA_PLANT: "DODY"
     command: npm start
     services:
       - ocr-connectivity

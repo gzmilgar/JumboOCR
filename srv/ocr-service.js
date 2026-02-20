@@ -5,9 +5,18 @@ module.exports = cds.service.impl(async function() {
 
   /**
    * Generic Sales Order creation
-   * Input: JSON string with S/4HANA Sales Order format
-   * Source can be Excel (Sephora), PDF (Carrefour), or any other format
-   * The caller is responsible for mapping their data to S/4HANA format before calling this action
+   * 
+   * IMPORTANT: Caller MUST provide ALL required fields in the payload.
+   * No default values are applied by the service.
+   * Each company's mapping (Sephora, Noon, Geant, etc.) is responsible
+   * for providing the complete S/4HANA payload including:
+   *   - SalesOrderType (1SSR, 1SHD, OR, etc.)
+   *   - SalesOrganization (D106, etc.)
+   *   - DistributionChannel (08, 02, etc.)
+   *   - OrganizationDivision (00, etc.)
+   *   - SoldToParty
+   *   - to_Item with Material, Qty, Pricing
+   *   - to_Partner (WE, RE, etc.)
    */
   this.on('createSalesOrder', async (req) => {
     try {
@@ -22,34 +31,62 @@ module.exports = cds.service.impl(async function() {
         soPayload = req.data.payload;
       }
 
-      // Boş alanları environment variable'lardan doldur (manifest.yml'de tanımlı)
-      if (!soPayload.SalesOrderType) soPayload.SalesOrderType = process.env.S4HANA_SO_TYPE || '';
-      if (!soPayload.SalesOrganization) soPayload.SalesOrganization = process.env.S4HANA_SALES_ORG || '';
-      if (!soPayload.DistributionChannel) soPayload.DistributionChannel = process.env.S4HANA_DIST_CHANNEL || '';
-      if (!soPayload.OrganizationDivision) soPayload.OrganizationDivision = process.env.S4HANA_DIVISION || '';
-      if (!soPayload.CustomerPaymentTerms) soPayload.CustomerPaymentTerms = process.env.S4HANA_PAYMENT_TERMS || '';
+      console.log('Sales Order Payload:', JSON.stringify(soPayload, null, 2));
 
-      // Item seviyesinde default plant uygula
-      if (soPayload.to_Item) {
-        soPayload.to_Item.forEach(item => {
-          if (!item.ProductionPlant) item.ProductionPlant = process.env.S4HANA_PLANT || '';
-        });
+      // -----------------------------------------------------------
+      // Validate required HEADER fields
+      // -----------------------------------------------------------
+      const requiredFields = [
+        'SalesOrderType',
+        'SalesOrganization',
+        'DistributionChannel',
+        'OrganizationDivision',
+        'SoldToParty'
+      ];
+
+      const missing = requiredFields.filter(f => !soPayload[f]);
+      if (missing.length > 0) {
+        throw new Error('Missing required header fields: ' + missing.join(', '));
       }
 
-      console.log('Sales Order Payload (after defaults):', JSON.stringify(soPayload, null, 2));
-
-      // Validate required fields
-      if (!soPayload.SalesOrderType) {
-        throw new Error('Missing SalesOrderType - set S4HANA_SO_TYPE env variable');
-      }
-      if (!soPayload.SoldToParty) {
-        throw new Error('Missing SoldToParty (customer)');
-      }
+      // -----------------------------------------------------------
+      // Validate ITEM fields
+      // -----------------------------------------------------------
       if (!soPayload.to_Item || soPayload.to_Item.length === 0) {
         throw new Error('Missing line items (to_Item)');
       }
 
-      // Call S/4HANA API via DS4_HTTPS_110 destination (Cloud Connector)
+      soPayload.to_Item.forEach((item, idx) => {
+        const itemNo = item.SalesOrderItem || ((idx + 1) * 10);
+        if (!item.Material) {
+          throw new Error('Item ' + itemNo + ': Missing Material');
+        }
+        if (!item.RequestedQuantity || Number(item.RequestedQuantity) <= 0) {
+          throw new Error('Item ' + itemNo + ': Missing or invalid RequestedQuantity');
+        }
+        // Default UoM only if not provided
+        if (!item.RequestedQuantityUnit) {
+          item.RequestedQuantityUnit = 'EA';
+        }
+      });
+
+      // -----------------------------------------------------------
+      // Log summary
+      // -----------------------------------------------------------
+      console.log('--- SO Summary ---');
+      console.log('  Type:', soPayload.SalesOrderType);
+      console.log('  Sales Org:', soPayload.SalesOrganization);
+      console.log('  Dist Ch:', soPayload.DistributionChannel);
+      console.log('  Division:', soPayload.OrganizationDivision);
+      console.log('  Sold-to:', soPayload.SoldToParty);
+      console.log('  PO#:', soPayload.PurchaseOrderByCustomer || 'N/A');
+      console.log('  Currency:', soPayload.TransactionCurrency || 'N/A');
+      console.log('  Items:', soPayload.to_Item.length);
+      console.log('--------
+
+      // -----------------------------------------------------------
+      // Call S/4HANA API via QS4_HTTPS destination
+      // -----------------------------------------------------------
       console.log('Creating S/4HANA Sales Order...');
       const response = await executeHttpRequest(
         { destinationName: 'QS4_HTTPS' },
@@ -67,7 +104,6 @@ module.exports = cds.service.impl(async function() {
 
       console.log('S/4HANA Response:', JSON.stringify(response.data, null, 2));
 
-      // Parse OData v2 response
       const salesOrder = response.data?.d?.SalesOrder;
 
       if (!salesOrder) {
@@ -85,7 +121,6 @@ module.exports = cds.service.impl(async function() {
     } catch (error) {
       console.error('Error:', error.message);
 
-      // Parse S/4HANA error message
       let errorMsg = 'Unknown error';
       if (error.response?.data?.error?.message?.value) {
         errorMsg = error.response.data.error.message.value;
