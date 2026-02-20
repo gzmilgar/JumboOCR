@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "description": "OCR Service for Jumbo Electronics",
   "main": "srv/server.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
-    "start": "node srv/server.js"
+    "start": "node srv/server.js",
+    "watch": "cds watch",
+    "build": "cds build --production"
   },
   "dependencies": {
     "@sap-cloud-sdk/connectivity": "^3.0.0",
@@ -12,7 +17,15 @@
     "@sap/cds": "^9.7.1",
     "express": "^4.18.2"
   },
-  "engines": {
-    "node": "^18 || ^20"
+  "devDependencies": {
+    "@sap/cds-dk": "^9.2.0"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "kind": "none"
+      },
+      "auth": "xsuaa"
+    }
   }
 }

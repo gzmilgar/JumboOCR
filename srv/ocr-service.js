@@ -52,7 +52,7 @@ module.exports = cds.service.impl(async function() {
       // Call S/4HANA API via DS4_HTTPS_110 destination (Cloud Connector)
       console.log('Creating S/4HANA Sales Order...');
       const response = await executeHttpRequest(
-        { destinationName: 'DS4_HTTPS_110' },
+        { destinationName: 'QS4_HTTPS' },
         {
           method: 'POST',
           url: '/sap/opu/odata/sap/API_SALES_ORDER_SRV/A_SalesOrder',

@@ -23,7 +23,7 @@ async function start() {
       });
     });
     
-    await cds.serve('srv/ocr-service').in(app);
+    await cds.serve('all').in(app);
     
     app.listen(PORT, () => {
       console.log('Server running on port ' + PORT);
