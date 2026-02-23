@@ -109,4 +109,95 @@ module.exports = cds.service.impl(async function() {
       };
     }
   });
+
+  this.on('lookupProducts', async (req) => {
+    try {
+      console.log('=== lookupProducts called ===');
+
+      let idArray;
+      if (typeof req.data.identifiers === 'string') {
+        idArray = JSON.parse(req.data.identifiers);
+      } else {
+        idArray = req.data.identifiers;
+      }
+
+      if (!idArray || idArray.length === 0) {
+        throw new Error('Empty identifier list');
+      }
+
+      const lookupType = (req.data.lookupType || 'ean').toLowerCase();
+      console.log('Lookup type: ' + lookupType + ', count: ' + idArray.length);
+
+      let url;
+      let sourceField;
+      let productField;
+
+      if (lookupType === 'model') {
+        const filterParts = idArray.map(id => "ProductDescription eq '" + String(id) + "'");
+        const filterStr = filterParts.join(' or ');
+        url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_ProductDescription"
+            + "?$filter=" + encodeURIComponent(filterStr)
+            + "&$select=Product,ProductDescription"
+            + "&$format=json";
+        sourceField = 'ProductDescription';
+        productField = 'Product';
+      } else {
+        const filterParts = idArray.map(id => "ProductStandardID eq '" + String(id) + "'");
+        const filterStr = filterParts.join(' or ');
+        url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
+            + "?$filter=" + encodeURIComponent(filterStr)
+            + "&$select=Product,ProductStandardID"
+            + "&$format=json";
+        sourceField = 'ProductStandardID';
+        productField = 'Product';
+      }
+
+      console.log('Calling API_PRODUCT_SRV (' + lookupType + ')...');
+      const response = await executeHttpRequest(
+        { destinationName: 'QS4_HTTPS' },
+        {
+          method: 'GET',
+          url: url,
+          headers: { 'Accept': 'application/json' },
+          timeout: 30000
+        }
+      );
+
+      const results = response.data?.d?.results || [];
+      console.log('Found ' + results.length + ' products');
+
+      const mapping = {};
+      results.forEach(r => {
+        mapping[r[sourceField]] = r[productField];
+      });
+
+      const unmapped = idArray.filter(id => !mapping[String(id)]);
+      if (unmapped.length > 0) {
+        console.log('WARNING: Unmapped: ' + unmapped.join(', '));
+      }
+
+      return {
+        products: JSON.stringify(mapping),
+        success: true,
+        message: 'Found ' + results.length + ' of ' + idArray.length + ' products (' + lookupType + ')'
+      };
+
+    } catch (error) {
+      console.error('lookupProducts Error: ' + error.message);
+
+      let errorMsg = 'Unknown error';
+      if (error.response?.data?.error?.message?.value) {
+        errorMsg = error.response.data.error.message.value;
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+
+      return {
+        products: '{}',
+        success: false,
+        message: 'Failed: ' + errorMsg
+      };
+    }
+  });
+
 });
