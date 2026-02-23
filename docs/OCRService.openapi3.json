@@ -95,6 +95,54 @@
           }
         }
       }
+    },
+    "/lookupProducts": {
+      "post": {
+        "summary": "Invokes action lookupProducts",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_lookupProducts"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "identifiers": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "lookupType": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -113,6 +161,24 @@
           },
           "success": {
             "type": "boolean",
+            "nullable": true
+          }
+        }
+      },
+      "OCRService.return_OCRService_lookupProducts": {
+        "title": "return_OCRService_lookupProducts",
+        "type": "object",
+        "properties": {
+          "products": {
+            "type": "string",
+            "nullable": true
+          },
+          "success": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
             "nullable": true
           }
         }
