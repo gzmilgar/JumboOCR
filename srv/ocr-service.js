@@ -176,10 +176,12 @@ module.exports = cds.service.impl(async function() {
         console.log('WARNING: Unmapped: ' + unmapped.join(', '));
       }
 
+      const allFound = results.length === idArray.length;//aranan satır sayısı ile bulunan satır sayısı eşleşmez ise hata donmeli süreç devam etmemeli
+
       return {
         products: JSON.stringify(mapping),
-        success: true,
-        message: 'Found ' + results.length + ' of ' + idArray.length + ' products (' + lookupType + ')'
+        success: allFound,
+        message: 'Found ' + results.length + ' of ' + idArray.length + ' products (' + lookupType + ')' + (!allFound ? '. Missing: ' + unmapped.join(', ') : '')
       };
 
     } catch (error) {
