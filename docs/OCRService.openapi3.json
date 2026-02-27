@@ -143,6 +143,50 @@
           }
         }
       }
+    },
+    "/lookupShipToPartner": {
+      "post": {
+        "summary": "Invokes action lookupShipToPartner",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_lookupShipToPartner"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ocrCompany": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -170,6 +214,28 @@
         "type": "object",
         "properties": {
           "products": {
+            "type": "string",
+            "nullable": true
+          },
+          "success": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OCRService.return_OCRService_lookupShipToPartner": {
+        "title": "return_OCRService_lookupShipToPartner",
+        "type": "object",
+        "properties": {
+          "shipToId": {
+            "type": "string",
+            "nullable": true
+          },
+          "shipToAddress": {
             "type": "string",
             "nullable": true
           },
