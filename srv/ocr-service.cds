@@ -12,4 +12,11 @@ service OCRService {
     success: Boolean;
     message: String;
   };
+
+  action lookupShipToPartner(ocrCompany : String) returns {
+    shipToId: String;
+    shipToAddress: String;
+    success: Boolean;
+    message: String;
+  };
 }

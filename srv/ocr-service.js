@@ -110,6 +110,72 @@ module.exports = cds.service.impl(async function() {
     }
   });
 
+  this.on('lookupShipToPartner', async (req) => {
+    try {
+      console.log('=== lookupShipToPartner called ===');
+
+      const ocrCompany = req.data.ocrCompany;
+      if (!ocrCompany) {
+        throw new Error('ocrCompany parameter is required');
+      }
+
+      console.log('Looking up Ship-To Partner for OCR Company: ' + ocrCompany);
+
+      const url = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001/ShipToPartner"
+          + "?$filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'")
+          + "&$format=json";
+
+      const response = await executeHttpRequest(
+        { destinationName: 'QS4_HTTPS' },
+        {
+          method: 'GET',
+          url: url,
+          headers: { 'Accept': 'application/json' },
+          timeout: 30000
+        }
+      );
+
+      const results = response.data?.value || [];
+      console.log('Found ' + results.length + ' matching records');
+
+      if (results.length === 0) {
+        return {
+          shipToId: null,
+          shipToAddress: null,
+          success: false,
+          message: 'No Ship-To Partner found for OCR Company: ' + ocrCompany
+        };
+      }
+
+      const match = results[0];
+      console.log('Ship-To ID: ' + match.ShipToId + ', Address: ' + match.ShipToAddress);
+
+      return {
+        shipToId: match.ShipToId,
+        shipToAddress: match.ShipToAddress,
+        success: true,
+        message: 'Ship-To Partner found for ' + ocrCompany
+      };
+
+    } catch (error) {
+      console.error('lookupShipToPartner Error: ' + error.message);
+
+      let errorMsg = 'Unknown error';
+      if (error.response?.data?.error?.message?.value) {
+        errorMsg = error.response.data.error.message.value;
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+
+      return {
+        shipToId: null,
+        shipToAddress: null,
+        success: false,
+        message: 'Failed: ' + errorMsg
+      };
+    }
+  });
+
   this.on('lookupProducts', async (req) => {
     try {
       console.log('=== lookupProducts called ===');
@@ -176,7 +242,7 @@ module.exports = cds.service.impl(async function() {
         console.log('WARNING: Unmapped: ' + unmapped.join(', '));
       }
 
-      const allFound = results.length === idArray.length;//aranan satır sayısı ile bulunan satır sayısı eşleşmez ise hata donmeli süreç devam etmemeli
+      const allFound = results.length === idArray.length;
 
       return {
         products: JSON.stringify(mapping),
