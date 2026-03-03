@@ -3,6 +3,9 @@ const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 module.exports = cds.service.impl(async function() {
 
+  // ────────────────────────────────────────────
+  // 1) createSalesOrder
+  // ────────────────────────────────────────────
   this.on('createSalesOrder', async (req) => {
     try {
       console.log('=== createSalesOrder called ===');
@@ -110,55 +113,83 @@ module.exports = cds.service.impl(async function() {
     }
   });
 
-  this.on('lookupShipToPartner', async (req) => {
+  // ────────────────────────────────────────────
+  // 2) lookupShipToAndSalesArea (birleşik)
+  // ────────────────────────────────────────────
+  this.on('lookupShipToAndSalesArea', async (req) => {
     try {
-      console.log('=== lookupShipToPartner called ===');
+      console.log('=== lookupShipToAndSalesArea called ===');
 
       const ocrCompany = req.data.ocrCompany;
       if (!ocrCompany) {
         throw new Error('ocrCompany parameter is required');
       }
 
-      console.log('Looking up Ship-To Partner for OCR Company: ' + ocrCompany);
+      console.log('Looking up ShipTo + SalesArea for: ' + ocrCompany);
 
-      const url = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001/ShipToPartner"
-          + "?$filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'")
-          + "&$format=json";
+      const baseUrl = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
+      const filterParam = "?$filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + "&$format=json";
 
-      const response = await executeHttpRequest(
-        { destinationName: 'QS4_HTTPS' },
-        {
-          method: 'GET',
-          url: url,
-          headers: { 'Accept': 'application/json' },
-          timeout: 30000
-        }
-      );
+      const [shipToResponse, salesAreaResponse] = await Promise.all([
+        executeHttpRequest(
+          { destinationName: 'QS4_HTTPS' },
+          {
+            method: 'GET',
+            url: baseUrl + "/ShipToPartner" + filterParam,
+            headers: { 'Accept': 'application/json' },
+            timeout: 30000
+          }
+        ),
+        executeHttpRequest(
+          { destinationName: 'QS4_HTTPS' },
+          {
+            method: 'GET',
+            url: baseUrl + "/SalesAreaMap" + filterParam,
+            headers: { 'Accept': 'application/json' },
+            timeout: 30000
+          }
+        )
+      ]);
 
-      const results = response.data?.value || [];
-      console.log('Found ' + results.length + ' matching records');
+      const shipToResults = shipToResponse.data?.value || [];
+      const salesAreaResults = salesAreaResponse.data?.value || [];
 
-      if (results.length === 0) {
+      console.log('ShipToPartner results: ' + shipToResults.length);
+      console.log('SalesAreaMap results: ' + salesAreaResults.length);
+
+      if (shipToResults.length === 0 && salesAreaResults.length === 0) {
         return {
           shipToId: null,
           shipToAddress: null,
+          salesOrganization: null,
+          distributionChannel: null,
+          organizationDivision: null,
           success: false,
-          message: 'No Ship-To Partner found for OCR Company: ' + ocrCompany
+          message: 'No ShipTo or SalesArea found for: ' + ocrCompany
         };
       }
 
-      const match = results[0];
-      console.log('Ship-To ID: ' + match.ShipToId + ', Address: ' + match.ShipToAddress);
+      const shipTo = shipToResults[0] || {};
+      const salesArea = salesAreaResults[0] || {};
+
+      console.log('Ship-To ID: ' + (shipTo.ShipToId || 'N/A'));
+      console.log('Sales Org: ' + (salesArea.SalesOrganization || 'N/A'));
+      console.log('Dist Ch: ' + (salesArea.DistributionChannel || 'N/A'));
+      console.log('Division: ' + (salesArea.OrganizationDivision || 'N/A'));
 
       return {
-        shipToId: match.ShipToId,
-        shipToAddress: match.ShipToAddress,
+        shipToId: shipTo.ShipToId || null,
+        shipToAddress: shipTo.ShipToAddress || null,
+        salesOrganization: salesArea.SalesOrganization || null,
+        distributionChannel: salesArea.DistributionChannel || null,
+        organizationDivision: salesArea.OrganizationDivision || null,
         success: true,
-        message: 'Ship-To Partner found for ' + ocrCompany
+        message: 'ShipTo: ' + (shipTo.ShipToId || 'not found')
+               + ', SalesOrg: ' + (salesArea.SalesOrganization || 'not found')
       };
 
     } catch (error) {
-      console.error('lookupShipToPartner Error: ' + error.message);
+      console.error('lookupShipToAndSalesArea Error: ' + error.message);
 
       let errorMsg = 'Unknown error';
       if (error.response?.data?.error?.message?.value) {
@@ -170,30 +201,32 @@ module.exports = cds.service.impl(async function() {
       return {
         shipToId: null,
         shipToAddress: null,
+        salesOrganization: null,
+        distributionChannel: null,
+        organizationDivision: null,
         success: false,
         message: 'Failed: ' + errorMsg
       };
     }
   });
 
-  this.on('lookupSalesArea', async (req) => {
+  // ────────────────────────────────────────────
+  // 3) lookupBusinessPartner
+  // ────────────────────────────────────────────
+  this.on('lookupBusinessPartner', async (req) => {
     try {
-      console.log('=== lookupSalesArea called ===');
+      console.log('=== lookupBusinessPartner called ===');
 
-      const brand = req.data.brand;
-      const companyCode = req.data.companyCode;
-
-      if (!brand) {
-        throw new Error('brand parameter is required');
-      }
-      if (!companyCode) {
-        throw new Error('companyCode parameter is required');
+      const taxNumber = req.data.taxNumber;
+      if (!taxNumber) {
+        throw new Error('taxNumber parameter is required');
       }
 
-      console.log('Looking up Sales Area for Brand: ' + brand + ', Company Code: ' + companyCode);
+      console.log('Looking up Business Partner for Tax Number: ' + taxNumber);
 
-      const url = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001/SalesAreaMap"
-          + "?$filter=" + encodeURIComponent("Brand eq '" + brand + "' and Bukrs eq '" + companyCode + "'")
+      const url = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerTaxNumber"
+          + "?$filter=" + encodeURIComponent("BPTaxNumber eq '" + taxNumber + "'")
+          + "&$select=BusinessPartner,BPTaxNumber"
           + "&$format=json";
 
       const response = await executeHttpRequest(
@@ -206,32 +239,28 @@ module.exports = cds.service.impl(async function() {
         }
       );
 
-      const results = response.data?.value || [];
+      const results = response.data?.d?.results || [];
       console.log('Found ' + results.length + ' matching records');
 
       if (results.length === 0) {
         return {
-          salesOrganization: null,
-          distributionChannel: null,
-          division: null,
+          businessPartner: null,
           success: false,
-          message: 'No Sales Area found for Brand: ' + brand + ', Company Code: ' + companyCode
+          message: 'No Business Partner found for Tax Number: ' + taxNumber
         };
       }
 
-      const match = results[0];
-      console.log('Sales Org: ' + match.Vkorg + ', Dist Ch: ' + match.Vtweg + ', Division: ' + match.Spart);
+      const bp = results[0].BusinessPartner;
+      console.log('Business Partner: ' + bp);
 
       return {
-        salesOrganization: match.Vkorg,
-        distributionChannel: match.Vtweg,
-        division: match.Spart,
+        businessPartner: bp,
         success: true,
-        message: 'Sales Area found for Brand: ' + brand + ', Company Code: ' + companyCode
+        message: 'Business Partner ' + bp + ' found for Tax Number: ' + taxNumber
       };
 
     } catch (error) {
-      console.error('lookupSalesArea Error: ' + error.message);
+      console.error('lookupBusinessPartner Error: ' + error.message);
 
       let errorMsg = 'Unknown error';
       if (error.response?.data?.error?.message?.value) {
@@ -241,15 +270,16 @@ module.exports = cds.service.impl(async function() {
       }
 
       return {
-        salesOrganization: null,
-        distributionChannel: null,
-        division: null,
+        businessPartner: null,
         success: false,
         message: 'Failed: ' + errorMsg
       };
     }
   });
 
+  // ────────────────────────────────────────────
+  // 4) lookupProducts
+  // ────────────────────────────────────────────
   this.on('lookupProducts', async (req) => {
     try {
       console.log('=== lookupProducts called ===');

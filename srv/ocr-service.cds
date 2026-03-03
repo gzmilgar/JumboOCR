@@ -13,18 +13,19 @@ service OCRService {
     message: String;
   };
 
-  action lookupShipToPartner(ocrCompany : String) returns {
+  action lookupShipToAndSalesArea(ocrCompany : String) returns {
     shipToId: String;
     shipToAddress: String;
+    salesOrganization: String;
+    distributionChannel: String;
+    organizationDivision: String;
     success: Boolean;
     message: String;
   };
 
-  action lookupSalesArea(brand : String, companyCode : String) returns {
-    salesOrganization : String;
-    distributionChannel : String;
-    division : String;
-    success : Boolean;
-    message : String;
+  action lookupBusinessPartner(taxNumber : String) returns {
+    businessPartner: String;
+    success: Boolean;
+    message: String;
   };
 }
