@@ -176,6 +176,80 @@ module.exports = cds.service.impl(async function() {
     }
   });
 
+  this.on('lookupSalesArea', async (req) => {
+    try {
+      console.log('=== lookupSalesArea called ===');
+
+      const brand = req.data.brand;
+      const companyCode = req.data.companyCode;
+
+      if (!brand) {
+        throw new Error('brand parameter is required');
+      }
+      if (!companyCode) {
+        throw new Error('companyCode parameter is required');
+      }
+
+      console.log('Looking up Sales Area for Brand: ' + brand + ', Company Code: ' + companyCode);
+
+      const url = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001/SalesAreaMap"
+          + "?$filter=" + encodeURIComponent("Brand eq '" + brand + "' and Bukrs eq '" + companyCode + "'")
+          + "&$format=json";
+
+      const response = await executeHttpRequest(
+        { destinationName: 'QS4_HTTPS' },
+        {
+          method: 'GET',
+          url: url,
+          headers: { 'Accept': 'application/json' },
+          timeout: 30000
+        }
+      );
+
+      const results = response.data?.value || [];
+      console.log('Found ' + results.length + ' matching records');
+
+      if (results.length === 0) {
+        return {
+          salesOrganization: null,
+          distributionChannel: null,
+          division: null,
+          success: false,
+          message: 'No Sales Area found for Brand: ' + brand + ', Company Code: ' + companyCode
+        };
+      }
+
+      const match = results[0];
+      console.log('Sales Org: ' + match.Vkorg + ', Dist Ch: ' + match.Vtweg + ', Division: ' + match.Spart);
+
+      return {
+        salesOrganization: match.Vkorg,
+        distributionChannel: match.Vtweg,
+        division: match.Spart,
+        success: true,
+        message: 'Sales Area found for Brand: ' + brand + ', Company Code: ' + companyCode
+      };
+
+    } catch (error) {
+      console.error('lookupSalesArea Error: ' + error.message);
+
+      let errorMsg = 'Unknown error';
+      if (error.response?.data?.error?.message?.value) {
+        errorMsg = error.response.data.error.message.value;
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+
+      return {
+        salesOrganization: null,
+        distributionChannel: null,
+        division: null,
+        success: false,
+        message: 'Failed: ' + errorMsg
+      };
+    }
+  });
+
   this.on('lookupProducts', async (req) => {
     try {
       console.log('=== lookupProducts called ===');

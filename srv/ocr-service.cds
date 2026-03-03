@@ -19,4 +19,12 @@ service OCRService {
     success: Boolean;
     message: String;
   };
+
+  action lookupSalesArea(brand : String, companyCode : String) returns {
+    salesOrganization : String;
+    distributionChannel : String;
+    division : String;
+    success : Boolean;
+    message : String;
+  };
 }
