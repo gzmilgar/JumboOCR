@@ -278,7 +278,7 @@ module.exports = cds.service.impl(async function() {
   });
 
   // ────────────────────────────────────────────
-  // 4) lookupProducts
+  // 4) lookupProducts (Brand eklendi)
   // ────────────────────────────────────────────
   this.on('lookupProducts', async (req) => {
     try {
@@ -316,7 +316,7 @@ module.exports = cds.service.impl(async function() {
         const filterStr = filterParts.join(' or ');
         url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
             + "?$filter=" + encodeURIComponent(filterStr)
-            + "&$select=Product,ProductStandardID"
+            + "&$select=Product,ProductStandardID,Brand"
             + "&$format=json";
         sourceField = 'ProductStandardID';
         productField = 'Product';
@@ -338,7 +338,10 @@ module.exports = cds.service.impl(async function() {
 
       const mapping = {};
       results.forEach(r => {
-        mapping[r[sourceField]] = r[productField];
+        mapping[r[sourceField]] = {
+          product: r[productField],
+          brand: r.Brand || ''
+        };
       });
 
       const unmapped = idArray.filter(id => !mapping[String(id)]);
