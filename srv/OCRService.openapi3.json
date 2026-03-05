@@ -52,9 +52,9 @@
         }
       }
     },
-    "/createSalesOrder": {
+    "/lookupShipToPartner": {
       "post": {
-        "summary": "Invokes action createSalesOrder",
+        "summary": "Invokes action lookupShipToPartner",
         "tags": [
           "Service Operations"
         ],
@@ -66,143 +66,7 @@
                 "schema": {
                   "allOf": [
                     {
-                      "$ref": "#/components/schemas/OCRService.return_OCRService_createSalesOrder"
-                    }
-                  ],
-                  "nullable": true
-                }
-              }
-            }
-          },
-          "4XX": {
-            "$ref": "#/components/responses/error"
-          }
-        },
-        "requestBody": {
-          "description": "Action parameters",
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "payload": {
-                    "type": "string",
-                    "nullable": true
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/lookupBusinessPartner": {
-      "post": {
-        "summary": "Invokes action lookupBusinessPartner",
-        "tags": [
-          "Service Operations"
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/OCRService.return_OCRService_lookupBusinessPartner"
-                    }
-                  ],
-                  "nullable": true
-                }
-              }
-            }
-          },
-          "4XX": {
-            "$ref": "#/components/responses/error"
-          }
-        },
-        "requestBody": {
-          "description": "Action parameters",
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "taxNumber": {
-                    "type": "string",
-                    "nullable": true
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/lookupProducts": {
-      "post": {
-        "summary": "Invokes action lookupProducts",
-        "tags": [
-          "Service Operations"
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/OCRService.return_OCRService_lookupProducts"
-                    }
-                  ],
-                  "nullable": true
-                }
-              }
-            }
-          },
-          "4XX": {
-            "$ref": "#/components/responses/error"
-          }
-        },
-        "requestBody": {
-          "description": "Action parameters",
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "identifiers": {
-                    "type": "string",
-                    "nullable": true
-                  },
-                  "lookupType": {
-                    "type": "string",
-                    "nullable": true
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/lookupShipToAndSalesArea": {
-      "post": {
-        "summary": "Invokes action lookupShipToAndSalesArea",
-        "tags": [
-          "Service Operations"
-        ],
-        "responses": {
-          "200": {
-            "description": "Success",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "allOf": [
-                    {
-                      "$ref": "#/components/schemas/OCRService.return_OCRService_lookupShipToAndSalesArea"
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_lookupShipToPartner"
                     }
                   ],
                   "nullable": true
@@ -231,12 +95,86 @@
           }
         }
       }
+    },
+    "/processAndCreateSalesOrder": {
+      "post": {
+        "summary": "Invokes action processAndCreateSalesOrder",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_processAndCreateSalesOrder"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "extractedData": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "shipToAndSalesArea": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "processName": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
-      "OCRService.return_OCRService_createSalesOrder": {
-        "title": "return_OCRService_createSalesOrder",
+      "OCRService.return_OCRService_lookupShipToPartner": {
+        "title": "return_OCRService_lookupShipToPartner",
+        "type": "object",
+        "properties": {
+          "shipToId": {
+            "type": "string",
+            "nullable": true
+          },
+          "shipToAddress": {
+            "type": "string",
+            "nullable": true
+          },
+          "success": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OCRService.return_OCRService_processAndCreateSalesOrder": {
+        "title": "return_OCRService_processAndCreateSalesOrder",
         "type": "object",
         "properties": {
           "salesOrderNumber": {
@@ -250,62 +188,13 @@
           "success": {
             "type": "boolean",
             "nullable": true
-          }
-        }
-      },
-      "OCRService.return_OCRService_lookupBusinessPartner": {
-        "title": "return_OCRService_lookupBusinessPartner",
-        "type": "object",
-        "properties": {
-          "businessPartner": {
-            "type": "string",
+          },
+          "itemCount": {
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           },
-          "success": {
-            "type": "boolean",
-            "nullable": true
-          },
-          "message": {
-            "type": "string",
-            "nullable": true
-          }
-        }
-      },
-      "OCRService.return_OCRService_lookupProducts": {
-        "title": "return_OCRService_lookupProducts",
-        "type": "object",
-        "properties": {
-          "products": {
-            "type": "string",
-            "nullable": true
-          },
-          "success": {
-            "type": "boolean",
-            "nullable": true
-          },
-          "message": {
-            "type": "string",
-            "nullable": true
-          }
-        }
-      },
-      "OCRService.return_OCRService_lookupShipToAndSalesArea": {
-        "title": "return_OCRService_lookupShipToAndSalesArea",
-        "type": "object",
-        "properties": {
-          "shipToPartners": {
-            "type": "string",
-            "nullable": true
-          },
-          "salesAreaMap": {
-            "type": "string",
-            "nullable": true
-          },
-          "success": {
-            "type": "boolean",
-            "nullable": true
-          },
-          "message": {
+          "missingBarcodes": {
             "type": "string",
             "nullable": true
           }

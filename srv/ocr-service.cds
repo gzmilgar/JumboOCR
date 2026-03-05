@@ -1,28 +1,22 @@
 @path: '/odata/v4/ocr'
 service OCRService {
 
-  action createSalesOrder(payload : String) returns {
+  action lookupShipToPartner(ocrCompany : String) returns {
+    shipToId: String;
+    shipToAddress: String;
+    success: Boolean;
+    message: String;
+  };
+
+  action processAndCreateSalesOrder(
+    extractedData      : String,
+    shipToAndSalesArea : String,
+    processName        : String
+  ) returns {
     salesOrderNumber: String;
     message: String;
     success: Boolean;
-  };
-
-  action lookupProducts(identifiers : String, lookupType : String) returns {
-    products: String;
-    success: Boolean;
-    message: String;
-  };
-
-  action lookupShipToAndSalesArea(ocrCompany : String) returns {
-    shipToPartners: String;
-    salesAreaMap: String;
-    success: Boolean;
-    message: String;
-  };
-
-  action lookupBusinessPartner(taxNumber : String) returns {
-    businessPartner: String;
-    success: Boolean;
-    message: String;
+    itemCount: Integer;
+    missingBarcodes: String;
   };
 }
