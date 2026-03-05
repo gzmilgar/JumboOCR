@@ -1,9 +1,9 @@
 @path: '/odata/v4/ocr'
 service OCRService {
 
-  action lookupShipToPartner(ocrCompany : String) returns {
-    shipToId: String;
-    shipToAddress: String;
+  action lookupShipToAndSalesArea(ocrCompany : String) returns {
+    shipToPartners: String;
+    salesAreaMap: String;
     success: Boolean;
     message: String;
   };

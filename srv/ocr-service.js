@@ -1,28 +1,29 @@
 // srv/ocr-service.js
-
 const cds = require('@sap/cds');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
-
 module.exports = cds.service.impl(async function () {
-
     // ============================================================
-    // lookupShipToPartner → AYNI KALIR
+    // 1) lookupShipToAndSalesArea
+    // Root üzerinden expand ile:
+    //   _ShipToPartner → ocrCompany'ye göre filtrelenir
+    //   _SalesAreaMap  → tümü döner
     // ============================================================
-    this.on('lookupShipToPartner', async (req) => {
+    this.on('lookupShipToAndSalesArea', async (req) => {
         try {
-            console.log('=== lookupShipToPartner called ===');
-
+            console.log('=== lookupShipToAndSalesArea called ===');
             var ocrCompany = req.data.ocrCompany;
             if (!ocrCompany) {
                 throw new Error('ocrCompany parameter is required');
             }
+            console.log('Company: ' + ocrCompany);
 
-            console.log('Looking up Ship-To Partner for OCR Company: ' + ocrCompany);
-
-            var url = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001/ShipToPartner"
-                + "?$filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'")
+            var basePath = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
+            var url = basePath + "/Root"
+                + "?$expand=_ShipToPartner($filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + ")"
+                + ",_SalesAreaMap"
                 + "&$format=json";
 
+            console.log('Calling S/4HANA...');
             var response = await executeHttpRequest(
                 { destinationName: 'QS4_HTTPS' },
                 {
@@ -34,61 +35,57 @@ module.exports = cds.service.impl(async function () {
             );
 
             var results = response.data?.value || [];
-            console.log('Found ' + results.length + ' matching records');
+            var shipToResults = [];
+            var salesAreaResults = [];
+            results.forEach(function (item) {
+                if (item._ShipToPartner) {
+                    shipToResults = shipToResults.concat(item._ShipToPartner);
+                }
+                if (item._SalesAreaMap) {
+                    salesAreaResults = salesAreaResults.concat(item._SalesAreaMap);
+                }
+            });
 
-            if (results.length === 0) {
+            console.log('ShipToPartner results: ' + shipToResults.length);
+            console.log('SalesAreaMap results: ' + salesAreaResults.length);
+
+            if (shipToResults.length === 0 && salesAreaResults.length === 0) {
                 return {
-                    shipToId: null,
-                    shipToAddress: null,
+                    shipToPartners: '[]',
+                    salesAreaMap: '[]',
                     success: false,
-                    message: 'No Ship-To Partner found for OCR Company: ' + ocrCompany
+                    message: 'No data found for: ' + ocrCompany
                 };
             }
 
-            var match = results[0];
-            console.log('Ship-To ID: ' + match.ShipToId + ', Address: ' + match.ShipToAddress);
-
             return {
-                shipToId: match.ShipToId,
-                shipToAddress: match.ShipToAddress,
+                shipToPartners: JSON.stringify(shipToResults),
+                salesAreaMap: JSON.stringify(salesAreaResults),
                 success: true,
-                message: 'Ship-To Partner found for ' + ocrCompany
+                message: 'ShipTo: ' + shipToResults.length + ' records, SalesArea: ' + salesAreaResults.length + ' records'
             };
-
         } catch (error) {
-            console.error('lookupShipToPartner Error: ' + error.message);
-
+            console.error('lookupShipToAndSalesArea Error: ' + error.message);
             var errorMsg = 'Unknown error';
             if (error.response?.data?.error?.message?.value) {
                 errorMsg = error.response.data.error.message.value;
             } else if (error.message) {
                 errorMsg = error.message;
             }
-
             return {
-                shipToId: null,
-                shipToAddress: null,
+                shipToPartners: '[]',
+                salesAreaMap: '[]',
                 success: false,
                 message: 'Failed: ' + errorMsg
             };
         }
     });
 
-
     // ============================================================
-    // processAndCreateSalesOrder → TEK BİRLEŞİK ACTION
-    //
-    // Eski adımları birleştirir:
-    //   Extract EANs (script) → extractEansAndTaxId()
-    //   lookupProducts (CAP)  → lookupProducts()
-    //   Barcode Check (script) → checkBarcodes()
-    //   lookupBusinessPartner (CAP) → lookupBusinessPartner()
-    //   Map OCR Response (script)   → buildPayload()
-    //   createSalesOrder (CAP)      → createSalesOrder()
+    // 2) processAndCreateSalesOrder → TEK BİRLEŞİK ACTION
     // ============================================================
     this.on('processAndCreateSalesOrder', async (req) => {
         var processName = req.data.processName || 'Unknown';
-
         try {
             console.log('=== processAndCreateSalesOrder called [' + processName + '] ===');
 
@@ -143,10 +140,8 @@ module.exports = cds.service.impl(async function () {
                 ocrCompany: ocrCompany,
                 overrides: overrides
             });
-
             var errors = payload._errors;
             delete payload._errors;
-
             console.log('[' + processName + '] Payload: SOType=' + payload.SalesOrderType +
                 ' Items=' + payload.to_Item.length + ' Errors=' + errors.length);
 
@@ -162,7 +157,6 @@ module.exports = cds.service.impl(async function () {
             }
 
             var soResult = await createSalesOrder(payload);
-
             console.log('[' + processName + '] SO created: ' + soResult.salesOrder);
 
             return {
@@ -172,10 +166,8 @@ module.exports = cds.service.impl(async function () {
                 itemCount: payload.to_Item.length,
                 missingBarcodes: barcodeReport.missing.join(',')
             };
-
         } catch (error) {
             console.error('[' + processName + '] ERROR: ' + error.message);
-
             var errorMsg = 'Unknown error';
             if (error.response?.data?.error?.message?.value) {
                 errorMsg = error.response.data.error.message.value;
@@ -185,7 +177,6 @@ module.exports = cds.service.impl(async function () {
             } else if (error.message) {
                 errorMsg = error.message;
             }
-
             return {
                 salesOrderNumber: null,
                 message: 'Failed: ' + errorMsg,
@@ -196,43 +187,34 @@ module.exports = cds.service.impl(async function () {
         }
     });
 
-
     // ============================================================
     // EXTRACT EANS & TAX ID
-    // extractedData içindeki lineItemFields'den EAN'ları,
-    // headerFields'den taxId'yi çıkarır
     // ============================================================
     function extractEansAndTaxId(data) {
         var eans = [];
         var seen = {};
         var taxId = '';
 
-        // Header'dan taxId
         taxId = getField(data.headerFields, 'taxId')
             || getField(data.headerFields, 'vatNumber')
             || getField(data.headerFields, 'taxNumber')
             || '';
         taxId = taxId.replace(/\s/g, '').trim();
 
-        // Line item'lardan EAN topla
         var lineItems = data.lineItemFields || [];
         for (var i = 0; i < lineItems.length; i++) {
             var line = lineItems[i];
             var barcode = String(getField(line, 'barcode')).replace(/\s/g, '').trim();
             barcode = barcode.replace(/^0+/, '');
-
             if (!barcode) continue;
             if (!/^\d+$/.test(barcode)) continue;
-
             if (!seen[barcode]) {
                 seen[barcode] = true;
                 eans.push(barcode);
             }
         }
-
         return { eans: eans, taxId: taxId };
     }
-
 
     // ============================================================
     // CHECK BARCODES
@@ -240,7 +222,6 @@ module.exports = cds.service.impl(async function () {
     function checkBarcodes(eans, eanProductMap) {
         var found = [];
         var missing = [];
-
         for (var i = 0; i < eans.length; i++) {
             if (eanProductMap[eans[i]]) {
                 found.push(eans[i]);
@@ -248,7 +229,6 @@ module.exports = cds.service.impl(async function () {
                 missing.push(eans[i]);
             }
         }
-
         return {
             total: eans.length,
             found: found,
@@ -259,29 +239,23 @@ module.exports = cds.service.impl(async function () {
         };
     }
 
-
     // ============================================================
     // LOOKUP PRODUCTS
-    // EAN listesi ile API_PRODUCT_SRV'den ürün bilgisi çeker
     // ============================================================
     async function lookupProducts(eans) {
         if (!eans || eans.length === 0) return {};
-
         var productMap = {};
         var BATCH = 50;
-
         for (var i = 0; i < eans.length; i += BATCH) {
             var batch = eans.slice(i, i + BATCH);
             var filterParts = batch.map(function (ean) {
                 return "ProductStandardID eq '" + String(ean) + "'";
             });
             var filterStr = filterParts.join(' or ');
-
             var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
                 + "?$filter=" + encodeURIComponent(filterStr)
                 + "&$select=Product,ProductStandardID"
                 + "&$format=json";
-
             try {
                 var response = await executeHttpRequest(
                     { destinationName: 'QS4_HTTPS' },
@@ -292,7 +266,6 @@ module.exports = cds.service.impl(async function () {
                         timeout: 30000
                     }
                 );
-
                 var results = response.data?.d?.results || [];
                 for (var r = 0; r < results.length; r++) {
                     var row = results[r];
@@ -305,24 +278,19 @@ module.exports = cds.service.impl(async function () {
                 console.error('Product lookup batch error: ' + e.message);
             }
         }
-
         return productMap;
     }
 
-
     // ============================================================
     // LOOKUP BUSINESS PARTNER
-    // TaxId ile API_BUSINESS_PARTNER'den BP bilgisi çeker
     // ============================================================
     async function lookupBusinessPartner(taxId) {
         if (!taxId) return { partner: '', companyCode: '' };
-
         try {
             var url = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerTaxNumber"
                 + "?$filter=" + encodeURIComponent("BPTaxNumber eq '" + taxId + "'")
                 + "&$select=BusinessPartner,BPTaxNumber"
                 + "&$format=json";
-
             var response = await executeHttpRequest(
                 { destinationName: 'QS4_HTTPS' },
                 {
@@ -332,34 +300,24 @@ module.exports = cds.service.impl(async function () {
                     timeout: 30000
                 }
             );
-
             var results = response.data?.d?.results || [];
-
             if (results.length > 0) {
                 var bp = results[0].BusinessPartner;
                 console.log('Business Partner found: ' + bp);
-                return {
-                    partner: bp || '',
-                    companyCode: ''
-                };
+                return { partner: bp || '', companyCode: '' };
             }
-
             console.log('No BP found for taxId: ' + taxId);
             return { partner: '', companyCode: '' };
-
         } catch (e) {
             console.error('BP lookup error: ' + e.message);
             return { partner: '', companyCode: '' };
         }
     }
 
-
     // ============================================================
     // CREATE SALES ORDER
-    // S/4HANA API_SALES_ORDER_SRV'ye POST yapar
     // ============================================================
     async function createSalesOrder(soPayload) {
-        // Validasyon
         var requiredFields = [
             'SalesOrderType',
             'SalesOrganization',
@@ -367,17 +325,13 @@ module.exports = cds.service.impl(async function () {
             'OrganizationDivision',
             'SoldToParty'
         ];
-
         var missing = requiredFields.filter(function (f) { return !soPayload[f]; });
         if (missing.length > 0) {
             throw new Error('Missing required header fields: ' + missing.join(', '));
         }
-
         if (!soPayload.to_Item || soPayload.to_Item.length === 0) {
             throw new Error('Missing line items (to_Item)');
         }
-
-        // Item validasyonu
         soPayload.to_Item.forEach(function (item, idx) {
             var itemNo = item.SalesOrderItem || ((idx + 1) * 10);
             if (!item.Material) {
@@ -414,20 +368,15 @@ module.exports = cds.service.impl(async function () {
                 timeout: 60000
             }
         );
-
         var salesOrder = response.data?.d?.SalesOrder;
         if (!salesOrder) {
             throw new Error('No SalesOrder number in S/4HANA response');
         }
-
         return { salesOrder: salesOrder };
     }
 
-
     // ============================================================
     // BUILD PAYLOAD
-    // OCR verisini + ürün map + BP + sales area bilgilerini
-    // birleştirerek S/4 HANA Sales Order payload'ı oluşturur
     // ============================================================
     function buildPayload(data, eanProductMap, ctx) {
         var soldToParty = ctx.soldToParty;
@@ -437,7 +386,6 @@ module.exports = cds.service.impl(async function () {
         var ocrCompany = ctx.ocrCompany;
         var overrides = ctx.overrides;
 
-        // Header fields
         var hdr = data.headerFields;
         var purchaseOrder = getField(hdr, 'purchaseOrder');
         var poDate = getField(hdr, 'documentDate');
@@ -449,7 +397,6 @@ module.exports = cds.service.impl(async function () {
         var deliveryPostalCode = getField(hdr, 'deliveryPostalCode');
         var deliveryCountry = getField(hdr, 'deliveryCountry');
 
-        // SO Type belirleme
         var eligible1SHD = ['carrefour', 'emaxhtml', 'retail', 'lulu', 'sharafdg', 'eros'];
         var companyLower = ocrCompany.toLowerCase();
         var isEligible = false;
@@ -462,10 +409,8 @@ module.exports = cds.service.impl(async function () {
         var hasAddress = !!deliveryAddress;
         var soType = overrides.soType || ((isEligible && hasAddress) ? '1SHD' : '1SSR');
 
-        // Ship To Party bul
         var shipToId = findShipTo(receiverId, hdr, shipToList);
 
-        // Line Items
         var lineItems = data.lineItemFields || [];
         var itemsArray = [];
         var errors = [];
@@ -478,39 +423,28 @@ module.exports = cds.service.impl(async function () {
             var quantity = getField(line, 'quantity');
             var unitPrice = getField(line, 'unitPrice');
 
-            // Geçersiz barkod atla
             if (barcode && !/^\d+$/.test(barcode)) continue;
-            // Çöp description atla
             if (!barcode && description.length > 100) continue;
 
-            // Material bul - barkod ile (eanProductMap: { EAN: MaterialNumber })
             var material = '';
-
             if (barcode && eanProductMap[barcode]) {
                 material = eanProductMap[barcode];
             }
-
-            // Material bul - description ile (fallback)
             if (!material && description) {
                 var eanKeys = Object.keys(eanProductMap);
                 for (var j = 0; j < eanKeys.length; j++) {
-                    // Bu basit map'te description yok, sadece barkod→material
-                    // Description bazlı arama için genişletilmiş lookup gerekir
                     break;
                 }
             }
-
             if (!material) {
                 errors.push('Satır ' + (i + 1) + ': Malzeme bulunamadı (EAN: ' + barcode + ')');
                 continue;
             }
 
-            // Sales Area (Brand + BUKRS → VKORG, VTWEG, SPART, Site)
             var vkorg = '', vtweg = '', spart = '', plant = '';
             for (var sa = 0; sa < salesAreaList.length; sa++) {
                 var saItem = salesAreaList[sa];
                 var saBukrs = String(saItem.Bukrs || saItem.BUKRS || '');
-
                 if (saBukrs === companyCode) {
                     vkorg = String(saItem.Vkorg || saItem.VKORG || '');
                     vtweg = String(saItem.Vtweg || saItem.VTWEG || '');
@@ -519,7 +453,6 @@ module.exports = cds.service.impl(async function () {
                     break;
                 }
             }
-
             if (!firstSalesArea && vkorg) {
                 firstSalesArea = { org: vkorg, channel: vtweg, division: spart };
             }
@@ -529,14 +462,12 @@ module.exports = cds.service.impl(async function () {
                 RequestedQuantity: String(quantity),
                 ProductionPlant: plant
             };
-
             if (unitPrice) {
                 itemObj.to_PricingElement = [{
                     ConditionType: overrides.conditionType || 'ZMAN',
                     ConditionRateValue: String(unitPrice)
                 }];
             }
-
             itemsArray.push(itemObj);
         }
 
@@ -544,13 +475,11 @@ module.exports = cds.service.impl(async function () {
             firstSalesArea = { org: '', channel: '', division: '' };
         }
 
-        // Partner
         var partnerArray = [];
         if (shipToId) {
             partnerArray.push({ PartnerFunction: 'WE', Customer: shipToId });
         }
 
-        // Payload
         var payload = {
             SalesOrderType: soType,
             SalesOrganization: firstSalesArea.org,
@@ -562,12 +491,9 @@ module.exports = cds.service.impl(async function () {
             to_Item: itemsArray,
             _errors: errors
         };
-
         if (poDate) {
             payload.CustomerPurchaseOrderDate = poDate + 'T00:00:00';
         }
-
-        // 1SHD ise teslimat adresi alanlarını ekle
         if (soType === '1SHD') {
             payload.ZZ8_SOUPD_01_SDH = deliveryName;
             payload.ZZ8_SOUPD_02_SDH = deliveryAddress;
@@ -576,14 +502,11 @@ module.exports = cds.service.impl(async function () {
             payload.ZZ8_SOUPD_05_SDH = deliveryCountry;
             payload.ZZ8_SOUPD_06_SDH = deliveryPhone;
         }
-
         return payload;
     }
 
-
     // ============================================================
     // FIND SHIP TO
-    // receiverId, adres ve fuzzy match ile ShipTo partner bulur
     // ============================================================
     function findShipTo(receiverId, headerFields, shipToList) {
         if (!shipToList || shipToList.length === 0) return '';
@@ -592,7 +515,6 @@ module.exports = cds.service.impl(async function () {
         var deliveredTo = getField(headerFields, 'deliveredTo').trim();
         var deliveryLoc = getField(headerFields, 'deliveryLocation').trim();
 
-        // 1) receiverId ile doğrudan eşleştir
         if (receiverId) {
             for (var s = 0; s < shipToList.length; s++) {
                 var stId = String(shipToList[s].ShipTold || '');
@@ -602,18 +524,15 @@ module.exports = cds.service.impl(async function () {
             }
         }
 
-        // 2) Text bazlı tam eşleştirme
         var searchTexts = [];
         if (deliveredTo) searchTexts.push(deliveredTo.toLowerCase());
         if (deliveryAddress) searchTexts.push(deliveryAddress.toLowerCase());
         if (deliveryLoc) searchTexts.push(deliveryLoc.toLowerCase());
-
         if (searchTexts.length === 0) return '';
 
         for (var s2 = 0; s2 < shipToList.length; s2++) {
             var addr = String(shipToList[s2].ShipToAddress || '').toLowerCase().trim();
             if (!addr) continue;
-
             for (var t = 0; t < searchTexts.length; t++) {
                 if (searchTexts[t].indexOf(addr) >= 0 || addr.indexOf(searchTexts[t]) >= 0) {
                     return String(shipToList[s2].ShipTold || '');
@@ -621,13 +540,10 @@ module.exports = cds.service.impl(async function () {
             }
         }
 
-        // 3) Fuzzy kelime bazlı eşleştirme
         var best = { id: '', score: 0 };
-
         for (var s3 = 0; s3 < shipToList.length; s3++) {
             var addr2 = String(shipToList[s3].ShipToAddress || '').toLowerCase().trim();
             if (!addr2) continue;
-
             var words = addr2.split(/\s+/);
             for (var t2 = 0; t2 < searchTexts.length; t2++) {
                 var matchCount = 0;
@@ -642,14 +558,11 @@ module.exports = cds.service.impl(async function () {
                 }
             }
         }
-
         return best.id;
     }
 
-
     // ============================================================
     // PROCESS OVERRIDES
-    // Process bazlı farklılıkları yönetir
     // ============================================================
     function getProcessOverrides(processName) {
         var map = {
@@ -663,11 +576,9 @@ module.exports = cds.service.impl(async function () {
         return map[processName] || { conditionType: 'ZMAN', soType: null };
     }
 
-
     // ============================================================
     // HELPERS
     // ============================================================
-
     function getField(obj, fieldName) {
         if (obj && obj[fieldName] && obj[fieldName].length > 0 &&
             obj[fieldName][0].value !== undefined) {
@@ -683,5 +594,4 @@ module.exports = cds.service.impl(async function () {
         }
         return Array.isArray(val) ? val : [];
     }
-
 });
