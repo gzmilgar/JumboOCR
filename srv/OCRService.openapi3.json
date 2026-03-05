@@ -293,23 +293,11 @@
         "title": "return_OCRService_lookupShipToAndSalesArea",
         "type": "object",
         "properties": {
-          "shipToId": {
+          "shipToPartners": {
             "type": "string",
             "nullable": true
           },
-          "shipToAddress": {
-            "type": "string",
-            "nullable": true
-          },
-          "salesOrganization": {
-            "type": "string",
-            "nullable": true
-          },
-          "distributionChannel": {
-            "type": "string",
-            "nullable": true
-          },
-          "organizationDivision": {
+          "salesAreaMap": {
             "type": "string",
             "nullable": true
           },

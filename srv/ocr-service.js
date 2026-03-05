@@ -114,7 +114,7 @@ module.exports = cds.service.impl(async function() {
   });
 
   // ────────────────────────────────────────────
-  // 2) lookupShipToAndSalesArea (birleşik)
+  // 2) lookupShipToAndSalesArea
   // ────────────────────────────────────────────
   this.on('lookupShipToAndSalesArea', async (req) => {
     try {
@@ -125,67 +125,47 @@ module.exports = cds.service.impl(async function() {
         throw new Error('ocrCompany parameter is required');
       }
 
-      console.log('Looking up ShipTo + SalesArea for: ' + ocrCompany);
+      console.log('Company: ' + ocrCompany);
 
-      const baseUrl = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
-      const filterParam = "?$filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + "&$format=json";
+      const basePath = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
+      const url = basePath + "/Root('X')"
+          + "?$expand=_ShipToPartner($filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + ")"
+          + ",_SalesAreaMap"
+          + "&$format=json";
 
-      const [shipToResponse, salesAreaResponse] = await Promise.all([
-        executeHttpRequest(
-          { destinationName: 'QS4_HTTPS' },
-          {
-            method: 'GET',
-            url: baseUrl + "/ShipToPartner" + filterParam,
-            headers: { 'Accept': 'application/json' },
-            timeout: 30000
-          }
-        ),
-        executeHttpRequest(
-          { destinationName: 'QS4_HTTPS' },
-          {
-            method: 'GET',
-            url: baseUrl + "/SalesAreaMap" + filterParam,
-            headers: { 'Accept': 'application/json' },
-            timeout: 30000
-          }
-        )
-      ]);
+      console.log('Calling S/4HANA...');
 
-      const shipToResults = shipToResponse.data?.value || [];
-      const salesAreaResults = salesAreaResponse.data?.value || [];
+      const response = await executeHttpRequest(
+        { destinationName: 'QS4_HTTPS' },
+        {
+          method: 'GET',
+          url: url,
+          headers: { 'Accept': 'application/json' },
+          timeout: 30000
+        }
+      );
+
+      const data = response.data || {};
+      const shipToResults = data._ShipToPartner || [];
+      const salesAreaResults = data._SalesAreaMap || [];
 
       console.log('ShipToPartner results: ' + shipToResults.length);
       console.log('SalesAreaMap results: ' + salesAreaResults.length);
 
       if (shipToResults.length === 0 && salesAreaResults.length === 0) {
         return {
-          shipToId: null,
-          shipToAddress: null,
-          salesOrganization: null,
-          distributionChannel: null,
-          organizationDivision: null,
+          shipToPartners: '[]',
+          salesAreaMap: '[]',
           success: false,
-          message: 'No ShipTo or SalesArea found for: ' + ocrCompany
+          message: 'No data found for: ' + ocrCompany
         };
       }
 
-      const shipTo = shipToResults[0] || {};
-      const salesArea = salesAreaResults[0] || {};
-
-      console.log('Ship-To ID: ' + (shipTo.ShipToId || 'N/A'));
-      console.log('Sales Org: ' + (salesArea.SalesOrganization || 'N/A'));
-      console.log('Dist Ch: ' + (salesArea.DistributionChannel || 'N/A'));
-      console.log('Division: ' + (salesArea.OrganizationDivision || 'N/A'));
-
       return {
-        shipToId: shipTo.ShipToId || null,
-        shipToAddress: shipTo.ShipToAddress || null,
-        salesOrganization: salesArea.SalesOrganization || null,
-        distributionChannel: salesArea.DistributionChannel || null,
-        organizationDivision: salesArea.OrganizationDivision || null,
+        shipToPartners: JSON.stringify(shipToResults),
+        salesAreaMap: JSON.stringify(salesAreaResults),
         success: true,
-        message: 'ShipTo: ' + (shipTo.ShipToId || 'not found')
-               + ', SalesOrg: ' + (salesArea.SalesOrganization || 'not found')
+        message: 'ShipTo: ' + shipToResults.length + ' records, SalesArea: ' + salesAreaResults.length + ' records'
       };
 
     } catch (error) {
@@ -199,11 +179,8 @@ module.exports = cds.service.impl(async function() {
       }
 
       return {
-        shipToId: null,
-        shipToAddress: null,
-        salesOrganization: null,
-        distributionChannel: null,
-        organizationDivision: null,
+        shipToPartners: '[]',
+        salesAreaMap: '[]',
         success: false,
         message: 'Failed: ' + errorMsg
       };
@@ -278,7 +255,7 @@ module.exports = cds.service.impl(async function() {
   });
 
   // ────────────────────────────────────────────
-  // 4) lookupProducts (Brand eklendi)
+  // 4) lookupProducts (Brand dahil)
   // ────────────────────────────────────────────
   this.on('lookupProducts', async (req) => {
     try {

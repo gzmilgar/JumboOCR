@@ -14,11 +14,8 @@ service OCRService {
   };
 
   action lookupShipToAndSalesArea(ocrCompany : String) returns {
-    shipToId: String;
-    shipToAddress: String;
-    salesOrganization: String;
-    distributionChannel: String;
-    organizationDivision: String;
+    shipToPartners: String;
+    salesAreaMap: String;
     success: Boolean;
     message: String;
   };
