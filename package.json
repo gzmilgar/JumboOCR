@@ -22,9 +22,6 @@
   },
   "cds": {
     "requires": {
-      "db": {
-        "kind": "none"
-      },
       "auth": "xsuaa"
     }
   }

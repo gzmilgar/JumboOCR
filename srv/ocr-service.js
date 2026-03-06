@@ -284,35 +284,67 @@ module.exports = cds.service.impl(async function () {
     // ============================================================
     // LOOKUP BUSINESS PARTNER
     // ============================================================
-    async function lookupBusinessPartner(taxId) {
-        if (!taxId) return { partner: '', companyCode: '' };
-        try {
-            var url = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerTaxNumber"
-                + "?$filter=" + encodeURIComponent("BPTaxNumber eq '" + taxId + "'")
-                + "&$select=BusinessPartner,BPTaxNumber"
-                + "&$format=json";
-            var response = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                {
-                    method: 'GET',
-                    url: url,
-                    headers: { 'Accept': 'application/json' },
-                    timeout: 30000
-                }
-            );
-            var results = response.data?.d?.results || [];
-            if (results.length > 0) {
-                var bp = results[0].BusinessPartner;
-                console.log('Business Partner found: ' + bp);
-                return { partner: bp || '', companyCode: '' };
+async function lookupBusinessPartner(taxId) {
+    if (!taxId) return { partner: '', bpTaxNumber: '', companyCode: '' };
+    try {
+        // Adım 1: Tax ID ile BusinessPartner bul
+        var url1 = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerTaxNumber"
+            + "?$filter=" + encodeURIComponent("BPTaxNumber eq '" + taxId + "'")
+            + "&$select=BusinessPartner,BPTaxNumber"
+            + "&$format=json";
+
+        var response1 = await executeHttpRequest(
+            { destinationName: 'QS4_HTTPS' },
+            {
+                method: 'GET',
+                url: url1,
+                headers: { 'Accept': 'application/json' },
+                timeout: 30000
             }
+        );
+
+        var results1 = response1.data?.d?.results || [];
+
+        if (results1.length === 0) {
             console.log('No BP found for taxId: ' + taxId);
-            return { partner: '', companyCode: '' };
-        } catch (e) {
-            console.error('BP lookup error: ' + e.message);
-            return { partner: '', companyCode: '' };
+            return { partner: '', bpTaxNumber: '', companyCode: '' };
         }
+
+        var bp = results1[0].BusinessPartner;
+        var bpTaxNumber = results1[0].BPTaxNumber;
+        console.log('Business Partner found: ' + bp);
+
+        // Adım 2: BusinessPartner ile CompanyCode bul
+        var url2 = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_CustomerCompany"
+            + "?$filter=" + encodeURIComponent("Customer eq '" + bp + "'")
+            + "&$select=Customer,CompanyCode"
+            + "&$format=json";
+
+        var response2 = await executeHttpRequest(
+            { destinationName: 'QS4_HTTPS' },
+            {
+                method: 'GET',
+                url: url2,
+                headers: { 'Accept': 'application/json' },
+                timeout: 30000
+            }
+        );
+
+        var results2 = response2.data?.d?.results || [];
+        var companyCode = results2.length > 0 ? results2[0].CompanyCode : '';
+        console.log('CompanyCode found: ' + companyCode);
+
+        return {
+            partner: bp || '',
+            bpTaxNumber: bpTaxNumber || '',
+            companyCode: companyCode || ''
+        };
+
+    } catch (e) {
+        console.error('BP lookup error: ' + e.message);
+        return { partner: '', bpTaxNumber: '', companyCode: '' };
     }
+}
 
     // ============================================================
     // CREATE SALES ORDER
