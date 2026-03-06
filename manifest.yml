@@ -1,5 +1,5 @@
 applications:
-  - name: jumbo-ocr-srv
+  - name:   ocr-srv
     path: .
     buildpacks:
       - nodejs_buildpack
