@@ -52,6 +52,11 @@ module.exports = cds.service.impl(async function () {
                 console.log('SalesAreaMap SAMPLE data: ' + JSON.stringify(salesAreaResults[0]));
             }
 
+            if (shipToResults.length > 0) {
+                console.log('ShipToPartner SAMPLE keys: ' + Object.keys(shipToResults[0]).join(', '));
+                console.log('ShipToPartner SAMPLE data: ' + JSON.stringify(shipToResults[0]));
+            }
+
             if (shipToResults.length === 0 && salesAreaResults.length === 0) {
                 return {
                     shipToPartners: '[]',
@@ -123,7 +128,6 @@ module.exports = cds.service.impl(async function () {
             console.log('[' + processName + '] ShipToPartner count: ' + shipToList.length);
             if (shipToList.length > 0) {
                 console.log('[' + processName + '] ShipToPartner keys: ' + Object.keys(shipToList[0]).join(', '));
-                console.log('[' + processName + '] ShipToPartner[0]: ' + JSON.stringify(shipToList[0]));
             }
 
             // ── SalesAreaMap'ten izin verilen BUKRS listesini çıkar ──
@@ -146,43 +150,41 @@ module.exports = cds.service.impl(async function () {
                 console.log('[' + processName + '] Missing barcodes: ' + barcodeReport.missing.join(', '));
             }
 
-            // --- Step 4: Lookup Business Partner (YENİ: ZSDOCR_V_SHP_PRT) ---
-            var bpData = lookupBusinessPartner(taxId, shipToList, allowedBukrs);
-            console.log('[' + processName + '] BP Result → SoldTo:' + bpData.partner +
-                ' BUKRS:' + bpData.companyCode + ' TaxNum:' + bpData.bpTaxNumber);
-
-            if (!bpData.partner) {
+            // --- Step 4: Build Payload (ASYNC - KNB1 lookup yapacak) ---
+            var payload = await buildPayload(data, eanProductMap, {
+                salesAreaList: salesAreaList,
+                shipToList: shipToList,
+                processName: processName,
+                overrides: overrides,
+                allowedBukrs: allowedBukrs
+            });
+            
+            var errors = payload._errors;
+            var soldToParty = payload._soldToParty;
+            var companyCode = payload._companyCode;
+            delete payload._errors;
+            delete payload._soldToParty;
+            delete payload._companyCode;
+            
+            console.log('[' + processName + '] BP Result → SoldTo:' + soldToParty + ' BUKRS:' + companyCode);
+            
+            if (!soldToParty) {
                 return {
                     salesOrderNumber: null,
-                    message: 'Business Partner not found for Tax ID: ' + taxId,
+                    message: 'SoldToParty not found. Hatalar: ' + errors.join('; '),
                     success: false,
                     itemCount: 0,
                     missingBarcodes: barcodeReport.missing.join(',')
                 };
             }
-
-            if (!bpData.companyCode) {
-                console.warn('[' + processName + '] WARNING: No matching BUKRS in salesAreaMap for BP: ' + bpData.partner);
-            }
-
-            // --- Step 5: Build Payload ---
-            var payload = buildPayload(data, eanProductMap, {
-                soldToParty: bpData.partner,
-                companyCode: bpData.companyCode,
-                salesAreaList: salesAreaList,
-                shipToList: shipToList,
-                processName: processName,
-                overrides: overrides
-            });
-            var errors = payload._errors;
-            delete payload._errors;
+            
             console.log('[' + processName + '] Payload: SOType=' + payload.SalesOrderType +
                 ' SalesOrg=' + payload.SalesOrganization +
                 ' DistCh=' + payload.DistributionChannel +
                 ' Div=' + payload.OrganizationDivision +
                 ' Items=' + payload.to_Item.length + ' Errors=' + errors.length);
 
-            // --- Step 6: Create Sales Order ---
+            // --- Step 5: Create Sales Order ---
             if (payload.to_Item.length === 0) {
                 return {
                     salesOrderNumber: null,
@@ -338,79 +340,68 @@ module.exports = cds.service.impl(async function () {
     }
 
     // ============================================================
-    // LOOKUP BUSINESS PARTNER (ZSDOCR_V_SHP_PRT Tablosundan)
+    // GET SOLD-TO COMPANY CODE (KNB1 - A_CustomerCompany)
     // ============================================================
-    // YENİ YAKLASIM: TaxId → ShipToPartner → SoldToParty + Company
-    // Field isimleri: Company, ShipToAddress, ShipToId, SoldToParty
+    // SoldToParty → KNB1 → BUKRS (allowedBukrs ile match)
     // ============================================================
-    function lookupBusinessPartner(taxId, shipToList, allowedBukrs) {
-        if (!taxId) return { partner: '', bpTaxNumber: '', companyCode: '' };
+    async function getSoldToCompanyCode(soldToParty, allowedBukrs) {
+        if (!soldToParty) return '';
 
-        console.log('lookupBusinessPartner: TaxId=' + taxId + 
-                    ' ShipToList count=' + (shipToList ? shipToList.length : 0));
+        console.log('getSoldToCompanyCode: SoldToParty=' + soldToParty + 
+                    ' allowedBukrs=[' + (allowedBukrs || []).join(', ') + ']');
 
-        if (!shipToList || shipToList.length === 0) {
-            console.log('No ShipToPartner data available');
-            return { partner: '', bpTaxNumber: taxId, companyCode: '' };
-        }
+        try {
+            var url = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_CustomerCompany"
+                + "?$filter=" + encodeURIComponent("Customer eq '" + soldToParty + "'")
+                + "&$select=Customer,CompanyCode"
+                + "&$format=json";
 
-        // TaxId formatını normalize et (boşlukları kaldır, uppercase)
-        var normalizedTaxId = taxId.replace(/\s/g, '').toUpperCase();
-        var hasFilter = allowedBukrs && allowedBukrs.length > 0;
-
-        for (var i = 0; i < shipToList.length; i++) {
-            var row = shipToList[i];
-            
-            var shipToId = String(row.ShipToId || '');
-            var soldToParty = String(row.SoldToParty || '').trim();
-            var company = String(row.Company || '').trim();
-            
-            // ShipToId'den TRN'i çıkar
-            // Format örnekleri: "100005388", "1100019-100005388"
-            var parts = shipToId.split('-');
-            var shipToTrn = parts.length > 0 ? parts[0].replace(/\s/g, '').toUpperCase() : '';
-            
-            // TaxId eşleşmesi kontrolü
-            var isTaxIdMatch = (shipToTrn === normalizedTaxId) || 
-                              (shipToId.replace(/\s/g, '').toUpperCase() === normalizedTaxId);
-            
-            if (isTaxIdMatch) {
-                console.log('  Candidate ' + i + ': ShipToId=' + shipToId +
-                           ' SoldToParty=' + soldToParty +
-                           ' Company=' + company);
-                
-                if (!soldToParty) {
-                    console.log('    ✗ SoldToParty empty, skipping...');
-                    continue;
+            var response = await executeHttpRequest(
+                { destinationName: 'QS4_HTTPS' },
+                {
+                    method: 'GET',
+                    url: url,
+                    headers: { 'Accept': 'application/json' },
+                    timeout: 30000
                 }
-                
-                if (!company) {
-                    console.log('    ✗ Company empty, skipping...');
-                    continue;
-                }
-                
-                // allowedBukrs kontrolü
-                if (hasFilter && allowedBukrs.indexOf(company) < 0) {
-                    console.log('    ✗ Company ' + company + ' not in allowedBukrs [' + 
-                               allowedBukrs.join(', ') + '], trying next...');
-                    continue;
-                }
-                
-                console.log('✓ MATCH in ShipToPartner:' +
-                           ' TaxId=' + normalizedTaxId +
-                           ' → SoldToParty=' + soldToParty +
-                           ' Company=' + company);
-                
-                return {
-                    partner: soldToParty,
-                    bpTaxNumber: taxId,
-                    companyCode: company
-                };
+            );
+
+            var results = response.data?.d?.results || [];
+            console.log('KNB1 results: ' + results.length);
+
+            if (results.length === 0) {
+                console.log('No company code found for SoldToParty: ' + soldToParty);
+                return '';
             }
-        }
 
-        console.log('✗ No matching ShipToPartner found for TaxId: ' + taxId);
-        return { partner: '', bpTaxNumber: taxId, companyCode: '' };
+            // allowedBukrs ile eşleşeni bul
+            var hasFilter = allowedBukrs && allowedBukrs.length > 0;
+            
+            for (var i = 0; i < results.length; i++) {
+                var bukrs = results[i].CompanyCode;
+                console.log('  KUNNR=' + results[i].Customer + ' BUKRS=' + bukrs);
+                
+                if (hasFilter) {
+                    if (allowedBukrs.indexOf(bukrs) >= 0) {
+                        console.log('✓ MATCH: BUKRS=' + bukrs + ' in allowedBukrs');
+                        return bukrs;
+                    } else {
+                        console.log('  ✗ BUKRS=' + bukrs + ' not in allowedBukrs');
+                    }
+                } else {
+                    // allowedBukrs yoksa ilk BUKRS'i kullan
+                    console.log('No filter, using first BUKRS: ' + bukrs);
+                    return bukrs;
+                }
+            }
+
+            console.log('✗ No matching BUKRS found in allowedBukrs');
+            return '';
+
+        } catch (e) {
+            console.error('getSoldToCompanyCode error: ' + e.message);
+            return '';
+        }
     }
 
     // ============================================================
@@ -478,15 +469,14 @@ module.exports = cds.service.impl(async function () {
     }
 
     // ============================================================
-    // BUILD PAYLOAD
+    // BUILD PAYLOAD (ASYNC - KNB1 Lookup)
     // ============================================================
-    function buildPayload(data, eanProductMap, ctx) {
-        var soldToParty = ctx.soldToParty;
-        var companyCode = ctx.companyCode;
+    async function buildPayload(data, eanProductMap, ctx) {
         var salesAreaList = ctx.salesAreaList;
         var shipToList = ctx.shipToList;
         var processName = ctx.processName || '';
         var overrides = ctx.overrides;
+        var allowedBukrs = ctx.allowedBukrs || [];
 
         var hdr = data.headerFields;
         var purchaseOrder = getField(hdr, 'purchaseOrder');
@@ -514,8 +504,25 @@ module.exports = cds.service.impl(async function () {
         var soType = overrides.soType || ((isEligible && hasAddress) ? '1SHD' : '1SSR');
         console.log('buildPayload: isEligible=' + isEligible + ' hasAddress=' + hasAddress + ' soType=' + soType);
 
-        var shipToId = findShipTo(receiverId, hdr, shipToList);
-        console.log('buildPayload: shipToId=' + shipToId);
+        // ── findShipTo'dan SoldToParty al ──
+        var shipToResult = findShipTo(receiverId, hdr, shipToList);
+        console.log('buildPayload: ShipToId=' + shipToResult.shipToId +
+                   ' SoldToParty=' + shipToResult.soldToParty +
+                   ' Company=' + shipToResult.company);
+
+        var soldToParty = shipToResult.soldToParty;
+        
+        // ── YENİ: SoldToParty → KNB1 → BUKRS ──
+        var companyCode = '';
+        if (soldToParty) {
+            companyCode = await getSoldToCompanyCode(soldToParty, allowedBukrs);
+            console.log('buildPayload: SoldToParty=' + soldToParty + 
+                       ' → CompanyCode=' + companyCode);
+        }
+        
+        if (!companyCode) {
+            console.warn('buildPayload: No CompanyCode found for SoldToParty=' + soldToParty);
+        }
 
         // ── İlk material'den MATKL_FAM belirle ──
         var lineItems = data.lineItemFields || [];
@@ -592,8 +599,8 @@ module.exports = cds.service.impl(async function () {
         }
 
         var partnerArray = [];
-        if (shipToId) {
-            partnerArray.push({ PartnerFunction: 'WE', Customer: shipToId });
+        if (shipToResult.shipToId) {
+            partnerArray.push({ PartnerFunction: 'WE', Customer: shipToResult.shipToId });
         }
 
         var payload = {
@@ -605,7 +612,9 @@ module.exports = cds.service.impl(async function () {
             SoldToParty: soldToParty,
             to_Partner: partnerArray,
             to_Item: itemsArray,
-            _errors: errors
+            _errors: errors,
+            _soldToParty: soldToParty,
+            _companyCode: companyCode
         };
         
         if (soType === '1SHD') {
@@ -619,114 +628,161 @@ module.exports = cds.service.impl(async function () {
         return payload;
     }
 
+
     // ============================================================
-    // FIND SALES AREA (MATKL_FAM Desteği ile)
-    // ============================================================
-    // Field isimleri: Brand, Bukrs, Vkorg, Vtweg, Spart, Site, MatklFam
-    // ============================================================
-    function findSalesArea(salesAreaList, companyCode, matkl_fam) {
-        var result = { vkorg: '', vtweg: '', spart: '', plant: '' };
+// FIND SALES AREA (MATKL_FAM + Brand Priority)
+// ============================================================
+function findSalesArea(salesAreaList, companyCode, matkl_fam) {
+    var result = { vkorg: '', vtweg: '', spart: '', plant: '' };
 
-        if (!salesAreaList || salesAreaList.length === 0 || !companyCode) {
-            console.log('findSalesArea: empty list or no companyCode');
-            return result;
-        }
+    if (!salesAreaList || salesAreaList.length === 0 || !companyCode) {
+        console.log('findSalesArea: empty list or no companyCode');
+        return result;
+    }
 
-        console.log('findSalesArea: BUKRS=' + companyCode + 
-                    ' MATKL_FAM=' + (matkl_fam || 'N/A') + 
-                    ' in ' + salesAreaList.length + ' rows');
+    console.log('findSalesArea: BUKRS=' + companyCode + 
+                ' MATKL_FAM=' + (matkl_fam || 'N/A') + 
+                ' in ' + salesAreaList.length + ' rows');
 
-        // ── Öncelik 1: BUKRS + MATKL_FAM (tam eşleşme) ──
-        if (matkl_fam) {
-            for (var i = 0; i < salesAreaList.length; i++) {
-                var row = salesAreaList[i];
-                var rowBukrs = String(row.Bukrs || row.BUKRS || '').trim();
-                var rowMatkl = String(row.MatklFam || row.MATKL_FAM || '').trim();
+    // ── Öncelik 1: BUKRS + MATKL_FAM (tam eşleşme) ──
+    if (matkl_fam) {
+        for (var i = 0; i < salesAreaList.length; i++) {
+            var row = salesAreaList[i];
+            var rowBukrs = String(row.Bukrs || row.BUKRS || '').trim();
+            var rowMatkl = String(row.MatklFam || row.MATKL_FAM || '').trim();
 
-                if (rowBukrs === companyCode && rowMatkl === matkl_fam) {
-                    result.vkorg = String(row.Vkorg || row.VKORG || '').trim();
-                    result.vtweg = String(row.Vtweg || row.VTWEG || '').trim();
-                    result.spart = String(row.Spart || row.SPART || '').trim();
-                    result.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
+            if (rowBukrs === companyCode && rowMatkl === matkl_fam) {
+                result.vkorg = String(row.Vkorg || row.VKORG || '').trim();
+                result.vtweg = String(row.Vtweg || row.VTWEG || '').trim();
+                result.spart = String(row.Spart || row.SPART || '').trim();
+                result.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
 
-                    console.log('findSalesArea: ✓ MATKL_FAM MATCH row ' + i +
-                               ' Brand=' + (row.Brand || '') +
-                               ' BUKRS=' + rowBukrs +
-                               ' MATKL_FAM=' + rowMatkl +
-                               ' VKORG=' + result.vkorg);
-                    
-                    if (result.vkorg) return result;
-                }
-            }
-            console.log('findSalesArea: No MATKL_FAM match, trying default...');
-        }
-
-        // ── Öncelik 2: BUKRS + Default (MATKL_FAM boş) ──
-        for (var j = 0; j < salesAreaList.length; j++) {
-            var row2 = salesAreaList[j];
-            var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
-            var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
-
-            if (rowBukrs2 === companyCode && !rowMatkl2) {
-                result.vkorg = String(row2.Vkorg || row2.VKORG || '').trim();
-                result.vtweg = String(row2.Vtweg || row2.VTWEG || '').trim();
-                result.spart = String(row2.Spart || row2.SPART || '').trim();
-                result.plant = String(row2.Site || row2.SITE || row2.Werks || row2.WERKS || '').trim();
-
-                console.log('findSalesArea: ✓ DEFAULT MATCH (MATKL_FAM empty)' +
-                           ' Brand=' + (row2.Brand || '') +
+                console.log('findSalesArea: ✓ MATKL_FAM MATCH row ' + i +
+                           ' Brand=' + (row.Brand || '') +
+                           ' BUKRS=' + rowBukrs +
+                           ' MATKL_FAM=' + rowMatkl +
                            ' VKORG=' + result.vkorg);
                 
                 if (result.vkorg) return result;
             }
         }
+        console.log('findSalesArea: No MATKL_FAM match, trying default...');
+    }
 
-        // ── Öncelik 3: Sadece BUKRS (fallback) ──
-        for (var k = 0; k < salesAreaList.length; k++) {
-            var row3 = salesAreaList[k];
-            if (String(row3.Bukrs || row3.BUKRS || '').trim() === companyCode) {
-                result.vkorg = String(row3.Vkorg || row3.VKORG || '').trim();
-                result.vtweg = String(row3.Vtweg || row3.VTWEG || '').trim();
-                result.spart = String(row3.Spart || row3.SPART || '').trim();
-                result.plant = String(row3.Site || row3.SITE || row3.Werks || row3.WERKS || '').trim();
-                
-                console.log('findSalesArea: ✓ BUKRS-only match (fallback)');
-                if (result.vkorg) return result;
-            }
+    // ── Öncelik 2: BUKRS + Default (MATKL_FAM boş) + Brand="SON" öncelikli ──
+    var defaultMatches = [];
+    
+    for (var j = 0; j < salesAreaList.length; j++) {
+        var row2 = salesAreaList[j];
+        var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
+        var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
+        var rowBrand = String(row2.Brand || row2.BRAND || '').trim().toUpperCase();
+
+        if (rowBukrs2 === companyCode && !rowMatkl2) {
+            defaultMatches.push({
+                brand: rowBrand,
+                vkorg: String(row2.Vkorg || row2.VKORG || '').trim(),
+                vtweg: String(row2.Vtweg || row2.VTWEG || '').trim(),
+                spart: String(row2.Spart || row2.SPART || '').trim(),
+                plant: String(row2.Site || row2.SITE || row2.Werks || row2.WERKS || '').trim()
+            });
         }
+    }
 
-        var uniqueBukrs = [];
-        var seen = {};
-        for (var u = 0; u < salesAreaList.length; u++) {
-            var b = String(salesAreaList[u].Bukrs || salesAreaList[u].BUKRS || '');
-            if (b && !seen[b]) {
-                seen[b] = true;
-                uniqueBukrs.push(b);
-            }
+    // SON brand'i öncelikli olarak ara
+    for (var d = 0; d < defaultMatches.length; d++) {
+        if (defaultMatches[d].brand === 'SON' && defaultMatches[d].vkorg) {
+            result = {
+                vkorg: defaultMatches[d].vkorg,
+                vtweg: defaultMatches[d].vtweg,
+                spart: defaultMatches[d].spart,
+                plant: defaultMatches[d].plant
+            };
+            console.log('findSalesArea: ✓ DEFAULT MATCH (Brand=SON priority)' +
+                       ' VKORG=' + result.vkorg);
+            return result;
         }
-        console.log('findSalesArea: ✗ No match for BUKRS=' + companyCode +
-            '. Available: [' + uniqueBukrs.join(', ') + ']');
+    }
 
+    // SON yoksa ilk default'u kullan
+    if (defaultMatches.length > 0 && defaultMatches[0].vkorg) {
+        result = {
+            vkorg: defaultMatches[0].vkorg,
+            vtweg: defaultMatches[0].vtweg,
+            spart: defaultMatches[0].spart,
+            plant: defaultMatches[0].plant
+        };
+        console.log('findSalesArea: ✓ DEFAULT MATCH (first found)' +
+                   ' Brand=' + defaultMatches[0].brand +
+                   ' VKORG=' + result.vkorg);
         return result;
     }
 
+    // ── Öncelik 3: Sadece BUKRS (fallback) ──
+    for (var k = 0; k < salesAreaList.length; k++) {
+        var row3 = salesAreaList[k];
+        if (String(row3.Bukrs || row3.BUKRS || '').trim() === companyCode) {
+            result.vkorg = String(row3.Vkorg || row3.VKORG || '').trim();
+            result.vtweg = String(row3.Vtweg || row3.VTWEG || '').trim();
+            result.spart = String(row3.Spart || row3.SPART || '').trim();
+            result.plant = String(row3.Site || row3.SITE || row3.Werks || row3.WERKS || '').trim();
+            
+            console.log('findSalesArea: ✓ BUKRS-only match (fallback)');
+            if (result.vkorg) return result;
+        }
+    }
+
+    var uniqueBukrs = [];
+    var seen = {};
+    for (var u = 0; u < salesAreaList.length; u++) {
+        var b = String(salesAreaList[u].Bukrs || salesAreaList[u].BUKRS || '');
+        if (b && !seen[b]) {
+            seen[b] = true;
+            uniqueBukrs.push(b);
+        }
+    }
+    console.log('findSalesArea: ✗ No match for BUKRS=' + companyCode +
+        '. Available: [' + uniqueBukrs.join(', ') + ']');
+
+    return result;
+}
+
     // ============================================================
-    // FIND SHIP TO
+    // FIND SHIP TO (SoldToParty + Company Döndürür)
+    // ============================================================
+    // RETURN: { shipToId, soldToParty, company }
+    // Field isimleri: Company, ShipToAddress, ShipToId, SoldToParty
     // ============================================================
     function findShipTo(receiverId, headerFields, shipToList) {
-        if (!shipToList || shipToList.length === 0) return '';
+        var emptyResult = { shipToId: '', soldToParty: '', company: '' };
+        
+        if (!shipToList || shipToList.length === 0) {
+            console.log('findShipTo: empty shipToList');
+            return emptyResult;
+        }
 
         var deliveryAddress = getField(headerFields, 'deliveryAdress');
-        var deliveredTo = getField(headerFields, 'deliveredTo').trim();
-        var deliveryLoc = getField(headerFields, 'deliveryLocation').trim();
+        
+        console.log('findShipTo: receiverId=' + receiverId + 
+                    ' deliveryAddress=' + deliveryAddress);
 
         // 1) receiverId ile tam eşleşme
         if (receiverId) {
             for (var s = 0; s < shipToList.length; s++) {
-                var stId = String(shipToList[s].ShipToId || '');
+                var row = shipToList[s];
+                var stId = String(row.ShipToId || '');
+                
                 if (stId && stId.indexOf(receiverId) >= 0) {
-                    console.log('findShipTo: receiverId match → ShipToId: ' + stId);
-                    return stId;
+                    var result = {
+                        shipToId: stId,
+                        soldToParty: String(row.SoldToParty || '').trim(),
+                        company: String(row.Company || '').trim()
+                    };
+                    console.log('findShipTo: receiverId match → ' + 
+                               'ShipToId=' + result.shipToId +
+                               ' SoldToParty=' + result.soldToParty +
+                               ' Company=' + result.company);
+                    return result;
                 }
             }
         }
@@ -734,26 +790,41 @@ module.exports = cds.service.impl(async function () {
         // 2) Adres ile tam eşleşme
         var searchTexts = [];
         if (deliveryAddress) searchTexts.push(deliveryAddress.toLowerCase());
-        if (searchTexts.length === 0) return '';
+        if (searchTexts.length === 0) {
+            console.log('findShipTo: no search criteria (no receiverId, no deliveryAddress)');
+            return emptyResult;
+        }
 
         for (var s2 = 0; s2 < shipToList.length; s2++) {
-            var addr = String(shipToList[s2].ShipToAddress || '').toLowerCase().trim();
+            var row2 = shipToList[s2];
+            var addr = String(row2.ShipToAddress || '').toLowerCase().trim();
             if (!addr) continue;
+            
             for (var t = 0; t < searchTexts.length; t++) {
                 if (searchTexts[t].indexOf(addr) >= 0 || addr.indexOf(searchTexts[t]) >= 0) {
-                    var matchId = String(shipToList[s2].ShipToId || '');
-                    console.log('findShipTo: address match → ShipToId: ' + matchId +
-                        ' (addr: ' + addr + ')');
-                    return matchId;
+                    var result2 = {
+                        shipToId: String(row2.ShipToId || ''),
+                        soldToParty: String(row2.SoldToParty || '').trim(),
+                        company: String(row2.Company || '').trim()
+                    };
+                    console.log('findShipTo: address match → ' +
+                               'ShipToId=' + result2.shipToId +
+                               ' SoldToParty=' + result2.soldToParty +
+                               ' Company=' + result2.company +
+                               ' (addr: ' + addr + ')');
+                    return result2;
                 }
             }
         }
 
         // 3) Fuzzy match - kelime bazlı benzerlik
-        var best = { id: '', score: 0 };
+        var best = { result: emptyResult, score: 0 };
+        
         for (var s3 = 0; s3 < shipToList.length; s3++) {
-            var addr2 = String(shipToList[s3].ShipToAddress || '').toLowerCase().trim();
+            var row3 = shipToList[s3];
+            var addr2 = String(row3.ShipToAddress || '').toLowerCase().trim();
             if (!addr2) continue;
+            
             var words = addr2.split(/\s+/);
             for (var t2 = 0; t2 < searchTexts.length; t2++) {
                 var matchCount = 0;
@@ -764,19 +835,29 @@ module.exports = cds.service.impl(async function () {
                 }
                 var score = words.length > 0 ? matchCount / words.length : 0;
                 if (score > best.score && score >= 0.5) {
-                    best = { id: String(shipToList[s3].ShipToId || ''), score: score };
+                    best = { 
+                        result: {
+                            shipToId: String(row3.ShipToId || ''),
+                            soldToParty: String(row3.SoldToParty || '').trim(),
+                            company: String(row3.Company || '').trim()
+                        }, 
+                        score: score 
+                    };
                 }
             }
         }
 
-        if (best.id) {
-            console.log('findShipTo: fuzzy match → ShipToId: ' + best.id +
-                ' (score: ' + best.score.toFixed(2) + ')');
-        } else {
-            console.log('findShipTo: no match found');
+        if (best.result.shipToId) {
+            console.log('findShipTo: fuzzy match → ' +
+                       'ShipToId=' + best.result.shipToId +
+                       ' SoldToParty=' + best.result.soldToParty +
+                       ' Company=' + best.result.company +
+                       ' (score: ' + best.score.toFixed(2) + ')');
+            return best.result;
         }
 
-        return best.id;
+        console.log('findShipTo: no match found');
+        return emptyResult;
     }
 
     // ============================================================
