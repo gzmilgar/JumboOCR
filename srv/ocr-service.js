@@ -120,6 +120,12 @@ module.exports = cds.service.impl(async function () {
                 console.log('[' + processName + '] SalesAreaMap[0]: ' + JSON.stringify(salesAreaList[0]));
             }
 
+            console.log('[' + processName + '] ShipToPartner count: ' + shipToList.length);
+            if (shipToList.length > 0) {
+                console.log('[' + processName + '] ShipToPartner keys: ' + Object.keys(shipToList[0]).join(', '));
+                console.log('[' + processName + '] ShipToPartner[0]: ' + JSON.stringify(shipToList[0]));
+            }
+
             // ── SalesAreaMap'ten izin verilen BUKRS listesini çıkar ──
             var allowedBukrs = extractAllowedBukrs(salesAreaList);
             console.log('[' + processName + '] Allowed BUKRS from salesAreaMap: [' + allowedBukrs.join(', ') + ']');
@@ -140,8 +146,8 @@ module.exports = cds.service.impl(async function () {
                 console.log('[' + processName + '] Missing barcodes: ' + barcodeReport.missing.join(', '));
             }
 
-            // --- Step 4: Lookup Business Partner ---
-            var bpData = await lookupBusinessPartner(taxId, allowedBukrs);
+            // --- Step 4: Lookup Business Partner (YENİ: ZSDOCR_V_SHP_PRT) ---
+            var bpData = lookupBusinessPartner(taxId, shipToList, allowedBukrs);
             console.log('[' + processName + '] BP Result → SoldTo:' + bpData.partner +
                 ' BUKRS:' + bpData.companyCode + ' TaxNum:' + bpData.bpTaxNumber);
 
@@ -332,126 +338,79 @@ module.exports = cds.service.impl(async function () {
     }
 
     // ============================================================
-    // LOOKUP BUSINESS PARTNER (Multi-BP + Dinamik BUKRS)
+    // LOOKUP BUSINESS PARTNER (ZSDOCR_V_SHP_PRT Tablosundan)
     // ============================================================
-    async function lookupBusinessPartner(taxId, allowedBukrs) {
+    // YENİ YAKLASIM: TaxId → ShipToPartner → SoldToParty + Company
+    // Field isimleri: Company, ShipToAddress, ShipToId, SoldToParty
+    // ============================================================
+    function lookupBusinessPartner(taxId, shipToList, allowedBukrs) {
         if (!taxId) return { partner: '', bpTaxNumber: '', companyCode: '' };
 
+        console.log('lookupBusinessPartner: TaxId=' + taxId + 
+                    ' ShipToList count=' + (shipToList ? shipToList.length : 0));
+
+        if (!shipToList || shipToList.length === 0) {
+            console.log('No ShipToPartner data available');
+            return { partner: '', bpTaxNumber: taxId, companyCode: '' };
+        }
+
+        // TaxId formatını normalize et (boşlukları kaldır, uppercase)
+        var normalizedTaxId = taxId.replace(/\s/g, '').toUpperCase();
         var hasFilter = allowedBukrs && allowedBukrs.length > 0;
 
-        try {
-            // ── Adım 1: Tax ID → TÜM BusinessPartner'ları bul ──
-            var url1 = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_BusinessPartnerTaxNumber"
-                + "?$filter=" + encodeURIComponent("BPTaxNumber eq '" + taxId + "'")
-                + "&$select=BusinessPartner,BPTaxNumber"
-                + "&$format=json";
-
-            var response1 = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                {
-                    method: 'GET',
-                    url: url1,
-                    headers: { 'Accept': 'application/json' },
-                    timeout: 30000
+        for (var i = 0; i < shipToList.length; i++) {
+            var row = shipToList[i];
+            
+            var shipToId = String(row.ShipToId || '');
+            var soldToParty = String(row.SoldToParty || '').trim();
+            var company = String(row.Company || '').trim();
+            
+            // ShipToId'den TRN'i çıkar
+            // Format örnekleri: "100005388", "1100019-100005388"
+            var parts = shipToId.split('-');
+            var shipToTrn = parts.length > 0 ? parts[0].replace(/\s/g, '').toUpperCase() : '';
+            
+            // TaxId eşleşmesi kontrolü
+            var isTaxIdMatch = (shipToTrn === normalizedTaxId) || 
+                              (shipToId.replace(/\s/g, '').toUpperCase() === normalizedTaxId);
+            
+            if (isTaxIdMatch) {
+                console.log('  Candidate ' + i + ': ShipToId=' + shipToId +
+                           ' SoldToParty=' + soldToParty +
+                           ' Company=' + company);
+                
+                if (!soldToParty) {
+                    console.log('    ✗ SoldToParty empty, skipping...');
+                    continue;
                 }
-            );
-
-            var bpResults = response1.data?.d?.results || [];
-            console.log('Tax ID: ' + taxId + ' → BP count: ' + bpResults.length);
-
-            if (bpResults.length === 0) {
-                console.log('No BP found for taxId: ' + taxId);
-                return { partner: '', bpTaxNumber: '', companyCode: '' };
-            }
-
-            for (var k = 0; k < bpResults.length; k++) {
-                console.log('  BP[' + k + ']: ' + bpResults[k].BusinessPartner);
-            }
-
-            // ── Adım 2: Tüm BP'ler için TOPLU CompanyCode sorgula (KNB1) ──
-            var bpFilterParts = bpResults.map(function (r) {
-                return "Customer eq '" + r.BusinessPartner + "'";
-            });
-            var combinedFilter = bpFilterParts.join(' or ');
-
-            var url2 = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_CustomerCompany"
-                + "?$filter=" + encodeURIComponent(combinedFilter)
-                + "&$select=Customer,CompanyCode"
-                + "&$format=json";
-
-            var response2 = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                {
-                    method: 'GET',
-                    url: url2,
-                    headers: { 'Accept': 'application/json' },
-                    timeout: 30000
+                
+                if (!company) {
+                    console.log('    ✗ Company empty, skipping...');
+                    continue;
                 }
-            );
-
-            var companyResults = response2.data?.d?.results || [];
-            console.log('KNB1 results: ' + companyResults.length);
-
-            for (var c = 0; c < companyResults.length; c++) {
-                var inMap = hasFilter ? (allowedBukrs.indexOf(companyResults[c].CompanyCode) >= 0) : true;
-                console.log('  KUNNR: ' + companyResults[c].Customer +
-                    ' → BUKRS: ' + companyResults[c].CompanyCode +
-                    (inMap ? ' ✓ in salesAreaMap' : ' ✗ not in salesAreaMap'));
-            }
-
-            // ── Adım 3: salesAreaMap'teki BUKRS ile eşleşen ilk kaydı bul ──
-            if (hasFilter) {
-                for (var i = 0; i < companyResults.length; i++) {
-                    var customer = companyResults[i].Customer;
-                    var companyCode = companyResults[i].CompanyCode;
-
-                    if (allowedBukrs.indexOf(companyCode) >= 0) {
-                        var matchedBp = null;
-                        for (var m = 0; m < bpResults.length; m++) {
-                            if (bpResults[m].BusinessPartner === customer) {
-                                matchedBp = bpResults[m];
-                                break;
-                            }
-                        }
-
-                        console.log('✓ MATCH → PARTNER: ' + customer +
-                            ', BUKRS: ' + companyCode +
-                            ', TaxNum: ' + (matchedBp ? matchedBp.BPTaxNumber : taxId));
-
-                        return {
-                            partner: customer,
-                            bpTaxNumber: matchedBp ? matchedBp.BPTaxNumber : taxId,
-                            companyCode: companyCode
-                        };
-                    }
+                
+                // allowedBukrs kontrolü
+                if (hasFilter && allowedBukrs.indexOf(company) < 0) {
+                    console.log('    ✗ Company ' + company + ' not in allowedBukrs [' + 
+                               allowedBukrs.join(', ') + '], trying next...');
+                    continue;
                 }
-
-                console.log('✗ WARNING: KNB1 BUKRS [' +
-                    companyResults.map(function (r) { return r.CompanyCode; }).join(', ') +
-                    '] did not match salesAreaMap BUKRS [' + allowedBukrs.join(', ') + ']');
+                
+                console.log('✓ MATCH in ShipToPartner:' +
+                           ' TaxId=' + normalizedTaxId +
+                           ' → SoldToParty=' + soldToParty +
+                           ' Company=' + company);
+                
+                return {
+                    partner: soldToParty,
+                    bpTaxNumber: taxId,
+                    companyCode: company
+                };
             }
-
-            // ── Adım 4: Fallback ──
-            console.log('Fallback: using first BP: ' + bpResults[0].BusinessPartner);
-
-            var fallbackCompanyCode = '';
-            for (var f = 0; f < companyResults.length; f++) {
-                if (companyResults[f].Customer === bpResults[0].BusinessPartner) {
-                    fallbackCompanyCode = companyResults[f].CompanyCode;
-                    break;
-                }
-            }
-
-            return {
-                partner: bpResults[0].BusinessPartner,
-                bpTaxNumber: bpResults[0].BPTaxNumber,
-                companyCode: fallbackCompanyCode
-            };
-
-        } catch (e) {
-            console.error('BP lookup error: ' + e.message);
-            return { partner: '', bpTaxNumber: '', companyCode: '' };
         }
+
+        console.log('✗ No matching ShipToPartner found for TaxId: ' + taxId);
+        return { partner: '', bpTaxNumber: taxId, companyCode: '' };
     }
 
     // ============================================================
@@ -558,7 +517,7 @@ module.exports = cds.service.impl(async function () {
         var shipToId = findShipTo(receiverId, hdr, shipToList);
         console.log('buildPayload: shipToId=' + shipToId);
 
-        // ── YENİ: İlk material'den MATKL_FAM belirle ──
+        // ── İlk material'den MATKL_FAM belirle ──
         var lineItems = data.lineItemFields || [];
         var firstMaterial = null;
         var firstProductGroup = '';
