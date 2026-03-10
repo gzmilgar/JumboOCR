@@ -481,13 +481,22 @@ module.exports = cds.service.impl(async function () {
         var hdr = data.headerFields;
         var purchaseOrder = getField(hdr, 'purchaseOrder');
         var poDate = getField(hdr, 'documentDate');
-        var deliveryAddress = getField(hdr, 'deliveryAdress');
+        var deliveryAddress = getField(hdr, 'deliveryAdress');  // ShipTo matching için
+        var vendorAddress = getField(hdr, 'vendorAdress');      // 1SHD kontrolü için
         var receiverId = getField(hdr, 'receiverId');
         var deliveryName = getField(hdr, 'deliveryName');
         var deliveryPhone = getField(hdr, 'deliveryPhone') || getField(hdr, 'telephone');
         var deliveryCity = getField(hdr, 'deliveryCity');
         var deliveryPostalCode = getField(hdr, 'deliveryPostalCode');
         var deliveryCountry = getField(hdr, 'deliveryCountry');
+
+        // ── YENİ: 1SHD için vendorAddress kontrol et ──
+        vendorAddress = (vendorAddress || '').trim();
+        var hasAddress = vendorAddress.length > 0;
+        
+        console.log('buildPayload: deliveryAddress="' + deliveryAddress + 
+                    '" vendorAddress="' + vendorAddress + 
+                    '" hasAddress=' + hasAddress);
 
         var eligible1SHD = ['carrefour', 'emaxhtml', 'retail', 'lulu', 'sharafdg', 'eros'];
         var companyLower = processName.toLowerCase();
@@ -500,9 +509,13 @@ module.exports = cds.service.impl(async function () {
                 break;
             }
         }
-        var hasAddress = !!deliveryAddress;
+        
         var soType = overrides.soType || ((isEligible && hasAddress) ? '1SHD' : '1SSR');
-        console.log('buildPayload: isEligible=' + isEligible + ' hasAddress=' + hasAddress + ' soType=' + soType);
+        
+        console.log('buildPayload: isEligible=' + isEligible + 
+                    ' hasAddress=' + hasAddress + 
+                    ' override=' + (overrides.soType || 'null') +
+                    ' → soType=' + soType);
 
         // ── findShipTo'dan SoldToParty al ──
         var shipToResult = findShipTo(receiverId, hdr, shipToList);
@@ -619,7 +632,7 @@ module.exports = cds.service.impl(async function () {
         
         if (soType === '1SHD') {
             payload.ZZ8_SOUPD_01_SDH = deliveryName;
-            payload.ZZ8_SOUPD_02_SDH = deliveryAddress;
+            payload.ZZ8_SOUPD_02_SDH = vendorAddress;  // ← YENİ: vendorAddress kullan
             payload.ZZ8_SOUPD_03_SDH = deliveryCity;
             payload.ZZ8_SOUPD_04_SDH = deliveryPostalCode;
             payload.ZZ8_SOUPD_05_SDH = deliveryCountry;
@@ -628,124 +641,125 @@ module.exports = cds.service.impl(async function () {
         return payload;
     }
 
-
     // ============================================================
-// FIND SALES AREA (MATKL_FAM + Brand Priority)
-// ============================================================
-function findSalesArea(salesAreaList, companyCode, matkl_fam) {
-    var result = { vkorg: '', vtweg: '', spart: '', plant: '' };
+    // FIND SALES AREA (MATKL_FAM + Brand Priority)
+    // ============================================================
+    // Field isimleri: Brand, Bukrs, Vkorg, Vtweg, Spart, Site, MatklFam
+    // ============================================================
+    function findSalesArea(salesAreaList, companyCode, matkl_fam) {
+        var result = { vkorg: '', vtweg: '', spart: '', plant: '' };
 
-    if (!salesAreaList || salesAreaList.length === 0 || !companyCode) {
-        console.log('findSalesArea: empty list or no companyCode');
-        return result;
-    }
+        if (!salesAreaList || salesAreaList.length === 0 || !companyCode) {
+            console.log('findSalesArea: empty list or no companyCode');
+            return result;
+        }
 
-    console.log('findSalesArea: BUKRS=' + companyCode + 
-                ' MATKL_FAM=' + (matkl_fam || 'N/A') + 
-                ' in ' + salesAreaList.length + ' rows');
+        console.log('findSalesArea: BUKRS=' + companyCode + 
+                    ' MATKL_FAM=' + (matkl_fam || 'N/A') + 
+                    ' in ' + salesAreaList.length + ' rows');
 
-    // ── Öncelik 1: BUKRS + MATKL_FAM (tam eşleşme) ──
-    if (matkl_fam) {
-        for (var i = 0; i < salesAreaList.length; i++) {
-            var row = salesAreaList[i];
-            var rowBukrs = String(row.Bukrs || row.BUKRS || '').trim();
-            var rowMatkl = String(row.MatklFam || row.MATKL_FAM || '').trim();
+        // ── Öncelik 1: BUKRS + MATKL_FAM (tam eşleşme) ──
+        if (matkl_fam) {
+            for (var i = 0; i < salesAreaList.length; i++) {
+                var row = salesAreaList[i];
+                var rowBukrs = String(row.Bukrs || row.BUKRS || '').trim();
+                var rowMatkl = String(row.MatklFam || row.MATKL_FAM || '').trim();
 
-            if (rowBukrs === companyCode && rowMatkl === matkl_fam) {
-                result.vkorg = String(row.Vkorg || row.VKORG || '').trim();
-                result.vtweg = String(row.Vtweg || row.VTWEG || '').trim();
-                result.spart = String(row.Spart || row.SPART || '').trim();
-                result.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
+                if (rowBukrs === companyCode && rowMatkl === matkl_fam) {
+                    result.vkorg = String(row.Vkorg || row.VKORG || '').trim();
+                    result.vtweg = String(row.Vtweg || row.VTWEG || '').trim();
+                    result.spart = String(row.Spart || row.SPART || '').trim();
+                    result.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
 
-                console.log('findSalesArea: ✓ MATKL_FAM MATCH row ' + i +
-                           ' Brand=' + (row.Brand || '') +
-                           ' BUKRS=' + rowBukrs +
-                           ' MATKL_FAM=' + rowMatkl +
-                           ' VKORG=' + result.vkorg);
-                
-                if (result.vkorg) return result;
+                    console.log('findSalesArea: ✓ MATKL_FAM MATCH row ' + i +
+                               ' Brand=' + (row.Brand || '') +
+                               ' BUKRS=' + rowBukrs +
+                               ' MATKL_FAM=' + rowMatkl +
+                               ' VKORG=' + result.vkorg);
+                    
+                    if (result.vkorg) return result;
+                }
+            }
+            console.log('findSalesArea: No MATKL_FAM match, trying default...');
+        }
+
+        // ── Öncelik 2: BUKRS + Default (MATKL_FAM boş) + Brand="SON" öncelikli ──
+        var defaultMatches = [];
+        
+        for (var j = 0; j < salesAreaList.length; j++) {
+            var row2 = salesAreaList[j];
+            var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
+            var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
+            var rowBrand = String(row2.Brand || row2.BRAND || '').trim().toUpperCase();
+
+            if (rowBukrs2 === companyCode && !rowMatkl2) {
+                defaultMatches.push({
+                    brand: rowBrand,
+                    vkorg: String(row2.Vkorg || row2.VKORG || '').trim(),
+                    vtweg: String(row2.Vtweg || row2.VTWEG || '').trim(),
+                    spart: String(row2.Spart || row2.SPART || '').trim(),
+                    plant: String(row2.Site || row2.SITE || row2.Werks || row2.WERKS || '').trim()
+                });
             }
         }
-        console.log('findSalesArea: No MATKL_FAM match, trying default...');
-    }
 
-    // ── Öncelik 2: BUKRS + Default (MATKL_FAM boş) + Brand="SON" öncelikli ──
-    var defaultMatches = [];
-    
-    for (var j = 0; j < salesAreaList.length; j++) {
-        var row2 = salesAreaList[j];
-        var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
-        var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
-        var rowBrand = String(row2.Brand || row2.BRAND || '').trim().toUpperCase();
-
-        if (rowBukrs2 === companyCode && !rowMatkl2) {
-            defaultMatches.push({
-                brand: rowBrand,
-                vkorg: String(row2.Vkorg || row2.VKORG || '').trim(),
-                vtweg: String(row2.Vtweg || row2.VTWEG || '').trim(),
-                spart: String(row2.Spart || row2.SPART || '').trim(),
-                plant: String(row2.Site || row2.SITE || row2.Werks || row2.WERKS || '').trim()
-            });
+        // SON brand'i öncelikli olarak ara
+        for (var d = 0; d < defaultMatches.length; d++) {
+            if (defaultMatches[d].brand === 'SON' && defaultMatches[d].vkorg) {
+                result = {
+                    vkorg: defaultMatches[d].vkorg,
+                    vtweg: defaultMatches[d].vtweg,
+                    spart: defaultMatches[d].spart,
+                    plant: defaultMatches[d].plant
+                };
+                console.log('findSalesArea: ✓ DEFAULT MATCH (Brand=SON priority)' +
+                           ' VKORG=' + result.vkorg);
+                return result;
+            }
         }
-    }
 
-    // SON brand'i öncelikli olarak ara
-    for (var d = 0; d < defaultMatches.length; d++) {
-        if (defaultMatches[d].brand === 'SON' && defaultMatches[d].vkorg) {
+        // SON yoksa ilk default'u kullan
+        if (defaultMatches.length > 0 && defaultMatches[0].vkorg) {
             result = {
-                vkorg: defaultMatches[d].vkorg,
-                vtweg: defaultMatches[d].vtweg,
-                spart: defaultMatches[d].spart,
-                plant: defaultMatches[d].plant
+                vkorg: defaultMatches[0].vkorg,
+                vtweg: defaultMatches[0].vtweg,
+                spart: defaultMatches[0].spart,
+                plant: defaultMatches[0].plant
             };
-            console.log('findSalesArea: ✓ DEFAULT MATCH (Brand=SON priority)' +
+            console.log('findSalesArea: ✓ DEFAULT MATCH (first found)' +
+                       ' Brand=' + defaultMatches[0].brand +
                        ' VKORG=' + result.vkorg);
             return result;
         }
-    }
 
-    // SON yoksa ilk default'u kullan
-    if (defaultMatches.length > 0 && defaultMatches[0].vkorg) {
-        result = {
-            vkorg: defaultMatches[0].vkorg,
-            vtweg: defaultMatches[0].vtweg,
-            spart: defaultMatches[0].spart,
-            plant: defaultMatches[0].plant
-        };
-        console.log('findSalesArea: ✓ DEFAULT MATCH (first found)' +
-                   ' Brand=' + defaultMatches[0].brand +
-                   ' VKORG=' + result.vkorg);
+        // ── Öncelik 3: Sadece BUKRS (fallback) ──
+        for (var k = 0; k < salesAreaList.length; k++) {
+            var row3 = salesAreaList[k];
+            if (String(row3.Bukrs || row3.BUKRS || '').trim() === companyCode) {
+                result.vkorg = String(row3.Vkorg || row3.VKORG || '').trim();
+                result.vtweg = String(row3.Vtweg || row3.VTWEG || '').trim();
+                result.spart = String(row3.Spart || row3.SPART || '').trim();
+                result.plant = String(row3.Site || row3.SITE || row3.Werks || row3.WERKS || '').trim();
+                
+                console.log('findSalesArea: ✓ BUKRS-only match (fallback)');
+                if (result.vkorg) return result;
+            }
+        }
+
+        var uniqueBukrs = [];
+        var seen = {};
+        for (var u = 0; u < salesAreaList.length; u++) {
+            var b = String(salesAreaList[u].Bukrs || salesAreaList[u].BUKRS || '');
+            if (b && !seen[b]) {
+                seen[b] = true;
+                uniqueBukrs.push(b);
+            }
+        }
+        console.log('findSalesArea: ✗ No match for BUKRS=' + companyCode +
+            '. Available: [' + uniqueBukrs.join(', ') + ']');
+
         return result;
     }
-
-    // ── Öncelik 3: Sadece BUKRS (fallback) ──
-    for (var k = 0; k < salesAreaList.length; k++) {
-        var row3 = salesAreaList[k];
-        if (String(row3.Bukrs || row3.BUKRS || '').trim() === companyCode) {
-            result.vkorg = String(row3.Vkorg || row3.VKORG || '').trim();
-            result.vtweg = String(row3.Vtweg || row3.VTWEG || '').trim();
-            result.spart = String(row3.Spart || row3.SPART || '').trim();
-            result.plant = String(row3.Site || row3.SITE || row3.Werks || row3.WERKS || '').trim();
-            
-            console.log('findSalesArea: ✓ BUKRS-only match (fallback)');
-            if (result.vkorg) return result;
-        }
-    }
-
-    var uniqueBukrs = [];
-    var seen = {};
-    for (var u = 0; u < salesAreaList.length; u++) {
-        var b = String(salesAreaList[u].Bukrs || salesAreaList[u].BUKRS || '');
-        if (b && !seen[b]) {
-            seen[b] = true;
-            uniqueBukrs.push(b);
-        }
-    }
-    console.log('findSalesArea: ✗ No match for BUKRS=' + companyCode +
-        '. Available: [' + uniqueBukrs.join(', ') + ']');
-
-    return result;
-}
 
     // ============================================================
     // FIND SHIP TO (SoldToParty + Company Döndürür)
@@ -881,7 +895,8 @@ function findSalesArea(salesAreaList, companyCode, matkl_fam) {
     function getField(obj, fieldName) {
         if (obj && obj[fieldName] && obj[fieldName].length > 0 &&
             obj[fieldName][0].value !== undefined) {
-            return String(obj[fieldName][0].value);
+            var val = String(obj[fieldName][0].value);
+            return val.trim();
         }
         return '';
     }
