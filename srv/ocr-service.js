@@ -483,12 +483,17 @@ module.exports = cds.service.impl(async function () {
         var poDate = getField(hdr, 'documentDate');
         var deliveryAddress = getField(hdr, 'deliveryAdress');  // ShipTo matching için
         var vendorAddress = getField(hdr, 'vendorAdress');      // 1SHD kontrolü için
+        var parsedVendor = parseCarrefourVendorAddress(vendorAddress);
         var receiverId = getField(hdr, 'receiverId');
         var deliveryName = getField(hdr, 'deliveryName');
         var deliveryPhone = getField(hdr, 'deliveryPhone') || getField(hdr, 'telephone');
         var deliveryCity = getField(hdr, 'deliveryCity');
         var deliveryPostalCode = getField(hdr, 'deliveryPostalCode');
         var deliveryCountry = getField(hdr, 'deliveryCountry');
+        var deliveryDate = getField(hdr, 'deliveryDate');
+
+        var sapDeliveryDate = toSapDate(deliveryDate);
+        console.log('buildPayload: deliveryDate raw="' + deliveryDate + '" → SAP="' + sapDeliveryDate + '"');
 
         // ── YENİ: 1SHD için vendorAddress kontrol et ──
         vendorAddress = (vendorAddress || '').trim();
@@ -616,12 +621,14 @@ module.exports = cds.service.impl(async function () {
             partnerArray.push({ PartnerFunction: 'WE', Customer: shipToResult.shipToId });
         }
 
+        
         var payload = {
             SalesOrderType: soType,
             SalesOrganization: salesAreaMatch.vkorg,
             DistributionChannel: salesAreaMatch.vtweg,
             OrganizationDivision: salesAreaMatch.spart,
             PurchaseOrderByCustomer: purchaseOrder,
+            RequestedDeliveryDate: sapDeliveryDate,
             SoldToParty: soldToParty,
             to_Partner: partnerArray,
             to_Item: itemsArray,
@@ -630,13 +637,13 @@ module.exports = cds.service.impl(async function () {
             _companyCode: companyCode
         };
         
-        if (soType === '1SHD') {
-            payload.ZZ8_SOUPD_01_SDH = deliveryName;
-            payload.ZZ8_SOUPD_02_SDH = vendorAddress;  // ← YENİ: vendorAddress kullan
-            payload.ZZ8_SOUPD_03_SDH = deliveryCity;
-            payload.ZZ8_SOUPD_04_SDH = deliveryPostalCode;
-            payload.ZZ8_SOUPD_05_SDH = deliveryCountry;
-            payload.ZZ8_SOUPD_06_SDH = deliveryPhone;
+    if (soType === '1SHD') {
+        payload.ZZ8_SOUPD_01_SDH = parsedVendor.name || deliveryName;
+        payload.ZZ8_SOUPD_02_SDH = parsedVendor.address || vendorAddress;
+        payload.ZZ8_SOUPD_03_SDH = parsedVendor.city || deliveryCity;
+        payload.ZZ8_SOUPD_04_SDH = deliveryPostalCode;
+        payload.ZZ8_SOUPD_05_SDH = deliveryCountry;
+        payload.ZZ8_SOUPD_06_SDH = parsedVendor.phone || deliveryPhone;
         }
         return payload;
     }
@@ -908,5 +915,51 @@ module.exports = cds.service.impl(async function () {
         }
         return Array.isArray(val) ? val : [];
     }
+    function toSapDate(dateStr) {
+    if (!dateStr) return '';
+    var normalized = dateStr.trim();
+    var dmySlash = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (dmySlash) normalized = dmySlash[3] + '-' + dmySlash[2] + '-' + dmySlash[1];
+    var dmyDot = normalized.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (dmyDot) normalized = dmyDot[3] + '-' + dmyDot[2] + '-' + dmyDot[1];
+    var ms = new Date(normalized).getTime();
+    if (isNaN(ms)) {
+        console.warn('toSapDate: invalid date: ' + dateStr);
+        return '';
+    }
+    return '/Date(' + ms + ')/';
+    }
+
+    function parseCarrefourVendorAddress(vendorAdress) {
+    var result = { name: '', phone: '', address: '', city: '' };
+    if (!vendorAdress) return result;
+
+    // Format: Invoice:... Name:Anna Parlakian Tel:+971545867480 Address:Torino b4 apt 506 -Arjan Dubai
+    var nameMatch = vendorAdress.match(/Name:\s*([^T]+?)(?=\s+Tel:|$)/i);
+    if (nameMatch) result.name = nameMatch[1].trim();
+
+    var telMatch = vendorAdress.match(/Tel:\s*([^\s]+)/i);
+    if (telMatch) result.phone = telMatch[1].trim();
+
+    var addrMatch = vendorAdress.match(/Address:\s*(.+)$/i);
+    if (addrMatch) {
+        var fullAddress = addrMatch[1].trim();
+        // Son kelime(ler) şehir — " -City" veya son boşluktan sonraki kısım
+        var cityMatch = fullAddress.match(/-\s*([A-Za-z\s]+)$/);
+        if (cityMatch) {
+            result.city = cityMatch[1].trim();
+            result.address = fullAddress.replace(/-\s*[A-Za-z\s]+$/, '').trim();
+        } else {
+            result.address = fullAddress;
+        }
+    }
+
+    console.log('parseCarrefourVendorAddress: name="' + result.name +
+                '" phone="' + result.phone +
+                '" address="' + result.address +
+                '" city="' + result.city + '"');
+    return result;
+}
+
 
 });
