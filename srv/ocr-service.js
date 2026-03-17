@@ -639,7 +639,7 @@ module.exports = cds.service.impl(async function () {
         
     if (soType === '1SHD') {
         payload.ZZ8_SOUPD_01_SDH = parsedVendor.name || deliveryName;
-        payload.ZZ8_SOUPD_02_SDH = parsedVendor.address || vendorAddress;
+        payload.ZZ8_SOUPD_02_SDH = parsedVendor.address;
         payload.ZZ8_SOUPD_03_SDH = parsedVendor.city || deliveryCity;
         payload.ZZ8_SOUPD_04_SDH = deliveryPostalCode;
         payload.ZZ8_SOUPD_05_SDH = deliveryCountry;
