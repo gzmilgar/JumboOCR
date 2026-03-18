@@ -311,8 +311,8 @@ module.exports = cds.service.impl(async function () {
 
             await s4Patch("OCRLogHead('" + uuid + "')", {
                 PurchaseOrder:  hdr.purchaseOrder || '',
-                DeliveryDate:   toAbapDate(hdr.deliveryDate),
-                DocumentDate:   toAbapDate(hdr.documentDate),
+                DeliveryDate:   hdr.deliveryDate || null,
+                DocumentDate:   hdr.documentDate || null,
                 ReceiverId:     hdr.receiverId || '',
                 DeliveryAdress: hdr.deliveryAdress || '',
                 VendorAdress:   hdr.vendorAdress || '',
@@ -436,14 +436,14 @@ module.exports = cds.service.impl(async function () {
                 PdfName:        fields.pdfName || '',
                 MailSubject:    fields.mailSubject || '',
                 PurchaseOrder:  fields.purchaseOrder || '',
-                DeliveryDate:   toAbapDate(fields.deliveryDate),
-                DocumentDate:   toAbapDate(fields.documentDate),
+                DeliveryDate:   fields.deliveryDate || null,
+                DocumentDate:   fields.documentDate || null,
                 ReceiverId:     fields.receiverId || '',
                 CurrencyCode:   fields.currencyCode || '',
-                NetAmount:      parseFloat(fields.netAmount) || 0,
-                GrossAmount:    parseFloat(fields.grossAmount) || 0,
-                TotalVat:       parseFloat(fields.totalVat) || 0,
-                Discount:       parseFloat(fields.discount) || 0,
+                NetAmount:      parseFloat(fields.netAmount) || 0,      // CURR → 0 kabul eder
+                GrossAmount:    parseFloat(fields.grossAmount) || 0,    // CURR → 0 kabul eder
+                TotalVat:       fields.totalVat ? String(fields.totalVat) : '000000000',
+                Discount:       parseFloat(fields.discount) || 0,       // DEC → 0 kabul eder
                 DeliveryAdress: fields.deliveryAdress || '',
                 VendorAdress:   fields.vendorAdress || '',
                 Status:         'PENDING',
