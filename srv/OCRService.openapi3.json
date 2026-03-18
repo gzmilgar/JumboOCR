@@ -52,6 +52,106 @@
         }
       }
     },
+    "/getPOLog": {
+      "post": {
+        "summary": "Invokes action getPOLog",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_getPOLog"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "uuid": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/getPOLogs": {
+      "post": {
+        "summary": "Invokes action getPOLogs",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Collection of return_OCRService_getPOLogs",
+                  "properties": {
+                    "@count": {
+                      "$ref": "#/components/schemas/count"
+                    },
+                    "value": {
+                      "type": "array",
+                      "items": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/OCRService.return_OCRService_getPOLogs"
+                          }
+                        ],
+                        "nullable": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "statusFilter": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/lookupShipToAndSalesArea": {
       "post": {
         "summary": "Invokes action lookupShipToAndSalesArea",
@@ -140,6 +240,110 @@
                   "processName": {
                     "type": "string",
                     "nullable": true
+                  },
+                  "pdfName": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "mailSubject": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/retryPOLog": {
+      "post": {
+        "summary": "Invokes action retryPOLog",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_retryPOLog"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "uuid": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/updatePOLogData": {
+      "post": {
+        "summary": "Invokes action updatePOLogData",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_updatePOLogData"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "uuid": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "headerData": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "itemsData": {
+                    "type": "string",
+                    "nullable": true
                   }
                 }
               }
@@ -151,6 +355,156 @@
   },
   "components": {
     "schemas": {
+      "OCRService.return_OCRService_getPOLog": {
+        "title": "return_OCRService_getPOLog",
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "nullable": true
+          },
+          "processName": {
+            "type": "string",
+            "nullable": true
+          },
+          "pdfName": {
+            "type": "string",
+            "nullable": true
+          },
+          "purchaseOrder": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "documentDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "receiverId": {
+            "type": "string",
+            "nullable": true
+          },
+          "currencyCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "netAmount": {
+            "type": "string",
+            "nullable": true
+          },
+          "grossAmount": {
+            "type": "string",
+            "nullable": true
+          },
+          "totalVat": {
+            "type": "string",
+            "nullable": true
+          },
+          "discount": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryAdress": {
+            "type": "string",
+            "nullable": true
+          },
+          "vendorAdress": {
+            "type": "string",
+            "nullable": true
+          },
+          "paymentTerms": {
+            "type": "string",
+            "nullable": true
+          },
+          "taxId": {
+            "type": "string",
+            "nullable": true
+          },
+          "vendorNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "salesOrderNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true
+          },
+          "itemCount": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "missingBarcodes": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "items": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OCRService.return_OCRService_getPOLogs": {
+        "title": "return_OCRService_getPOLogs",
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string",
+            "nullable": true
+          },
+          "processName": {
+            "type": "string",
+            "nullable": true
+          },
+          "purchaseOrder": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "salesOrderNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true
+          },
+          "itemCount": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "OCRService.return_OCRService_lookupShipToAndSalesArea": {
         "title": "return_OCRService_lookupShipToAndSalesArea",
         "type": "object",
@@ -195,6 +549,47 @@
             "nullable": true
           },
           "missingBarcodes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OCRService.return_OCRService_retryPOLog": {
+        "title": "return_OCRService_retryPOLog",
+        "type": "object",
+        "properties": {
+          "salesOrderNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "success": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "itemCount": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "missingBarcodes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OCRService.return_OCRService_updatePOLogData": {
+        "title": "return_OCRService_updatePOLogData",
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "message": {
             "type": "string",
             "nullable": true
           }
