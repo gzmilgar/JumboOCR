@@ -2,7 +2,10 @@
 const cds = require('@sap/cds');
 const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
+var OCR_BASE = '/sap/opu/odata4/sap/zsdocr_sb_log_o4/srvd/sap/zsd_ocr_log_srv/0001/';
+
 module.exports = cds.service.impl(async function () {
+
     // ============================================================
     // 1) lookupShipToAndSalesArea
     // ============================================================
@@ -90,14 +93,14 @@ module.exports = cds.service.impl(async function () {
     });
 
     // ============================================================
-    // 2) processAndCreateSalesOrder
+    // 2) processAndCreateSalesOrder (with auto-logging to S/4HANA)
     // ============================================================
     this.on('processAndCreateSalesOrder', async (req) => {
         var processName = req.data.processName || 'Unknown';
+        var logUuid = null;
         try {
             console.log('=== processAndCreateSalesOrder called [' + processName + '] ===');
 
-            // --- Parse inputs ---
             var data;
             if (typeof req.data.extractedData === 'string') {
                 data = JSON.parse(req.data.extractedData);
@@ -114,97 +117,37 @@ module.exports = cds.service.impl(async function () {
                 }
             }
 
-            var salesAreaList = parseJsonField(stsa.salesAreaMap);
-            var shipToList = parseJsonField(stsa.shipToPartners);
-            var overrides = getProcessOverrides(processName);
-
-            // Debug
-            console.log('[' + processName + '] SalesAreaMap count: ' + salesAreaList.length);
-            if (salesAreaList.length > 0) {
-                console.log('[' + processName + '] SalesAreaMap keys: ' + Object.keys(salesAreaList[0]).join(', '));
-                console.log('[' + processName + '] SalesAreaMap[0]: ' + JSON.stringify(salesAreaList[0]));
-            }
-
-            console.log('[' + processName + '] ShipToPartner count: ' + shipToList.length);
-            if (shipToList.length > 0) {
-                console.log('[' + processName + '] ShipToPartner keys: ' + Object.keys(shipToList[0]).join(', '));
-            }
-
-            // ── SalesAreaMap'ten izin verilen BUKRS listesini çıkar ──
-            var allowedBukrs = extractAllowedBukrs(salesAreaList);
-            console.log('[' + processName + '] Allowed BUKRS from salesAreaMap: [' + allowedBukrs.join(', ') + ']');
-
-            // --- Step 1: Extract EANs & TaxId ---
-            var extracted = extractEansAndTaxId(data);
-            var eans = extracted.eans;
-            var taxId = extracted.taxId;
-            console.log('[' + processName + '] EANs:' + eans.length + ' TaxId:' + taxId);
-
-            // --- Step 2: Lookup Products ---
-            var eanProductMap = await lookupProducts(eans);
-            console.log('[' + processName + '] Products:' + Object.keys(eanProductMap).length + '/' + eans.length);
-
-            // --- Step 3: Barcode Check ---
-            var barcodeReport = checkBarcodes(eans, eanProductMap);
-            if (barcodeReport.missing.length > 0) {
-                console.log('[' + processName + '] Missing barcodes: ' + barcodeReport.missing.join(', '));
-            }
-
-            // --- Step 4: Build Payload (ASYNC - KNB1 lookup yapacak) ---
-            var payload = await buildPayload(data, eanProductMap, {
-                salesAreaList: salesAreaList,
-                shipToList: shipToList,
-                processName: processName,
-                overrides: overrides,
-                allowedBukrs: allowedBukrs
+            var minData = extractMinimalData(data);
+            logUuid = await autoSavePOLog({
+                processName:    processName,
+                pdfName:        req.data.pdfName || '',
+                mailSubject:    req.data.mailSubject || '',
+                purchaseOrder:  minData.purchaseOrder,
+                deliveryDate:   minData.deliveryDate,
+                documentDate:   minData.documentDate,
+                receiverId:     minData.receiverId,
+                currencyCode:   minData.currencyCode,
+                netAmount:      minData.netAmount,
+                grossAmount:    minData.grossAmount,
+                totalVat:       minData.totalVAT,
+                discount:       minData.discount,
+                deliveryAdress: minData.deliveryAdress,
+                vendorAdress:   minData.vendorAdress,
+                lineItems:      minData.lineItems
             });
-            
-            var errors = payload._errors;
-            var soldToParty = payload._soldToParty;
-            var companyCode = payload._companyCode;
-            delete payload._errors;
-            delete payload._soldToParty;
-            delete payload._companyCode;
-            
-            console.log('[' + processName + '] BP Result → SoldTo:' + soldToParty + ' BUKRS:' + companyCode);
-            
-            if (!soldToParty) {
-                return {
-                    salesOrderNumber: null,
-                    message: 'SoldToParty not found. Hatalar: ' + errors.join('; '),
-                    success: false,
-                    itemCount: 0,
-                    missingBarcodes: barcodeReport.missing.join(',')
-                };
+
+            var result = await _processSalesOrder(data, stsa, processName);
+
+            if (logUuid) {
+                await autoUpdatePOLog(logUuid,
+                    result.success ? 'SUCCESS' : 'FAILED',
+                    result.salesOrderNumber || '',
+                    result.success ? '' : (result.message || ''),
+                    result.itemCount || 0,
+                    result.missingBarcodes || '');
             }
-            
-            console.log('[' + processName + '] Payload: SOType=' + payload.SalesOrderType +
-                ' SalesOrg=' + payload.SalesOrganization +
-                ' DistCh=' + payload.DistributionChannel +
-                ' Div=' + payload.OrganizationDivision +
-                ' Items=' + payload.to_Item.length + ' Errors=' + errors.length);
+            return result;
 
-            // --- Step 5: Create Sales Order ---
-            if (payload.to_Item.length === 0) {
-                return {
-                    salesOrderNumber: null,
-                    message: 'Geçerli kalem yok. Hatalar: ' + errors.join('; '),
-                    success: false,
-                    itemCount: 0,
-                    missingBarcodes: barcodeReport.missing.join(',')
-                };
-            }
-
-            var soResult = await createSalesOrder(payload);
-            console.log('[' + processName + '] SO created: ' + soResult.salesOrder);
-
-            return {
-                salesOrderNumber: soResult.salesOrder,
-                message: 'Sales Order ' + soResult.salesOrder + ' created successfully',
-                success: true,
-                itemCount: payload.to_Item.length,
-                missingBarcodes: barcodeReport.missing.join(',')
-            };
         } catch (error) {
             console.error('[' + processName + '] ERROR: ' + error.message);
             var errorMsg = 'Unknown error';
@@ -216,6 +159,7 @@ module.exports = cds.service.impl(async function () {
             } else if (error.message) {
                 errorMsg = error.message;
             }
+            if (logUuid) await autoUpdatePOLog(logUuid, 'FAILED', '', errorMsg, 0, '');
             return {
                 salesOrderNumber: null,
                 message: 'Failed: ' + errorMsg,
@@ -225,6 +169,471 @@ module.exports = cds.service.impl(async function () {
             };
         }
     });
+
+    // ============================================================
+    // 3) retryPOLog
+    // ============================================================
+    this.on('retryPOLog', async (req) => {
+        var uuid = req.data.uuid;
+        console.log('=== retryPOLog called uuid=' + uuid + ' ===');
+        try {
+            var logEntry = await s4GetPOLog(uuid);
+            if (!logEntry) {
+                return { salesOrderNumber: null, message: 'POLog not found: ' + uuid, success: false, itemCount: 0, missingBarcodes: '' };
+            }
+
+            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
+            var stsa = {
+                shipToPartners: stsaResult.shipToPartners,
+                salesAreaMap:   stsaResult.salesAreaMap
+            };
+
+            var minData = {
+                purchaseOrder:  logEntry.purchaseOrder,
+                deliveryDate:   logEntry.deliveryDate,
+                documentDate:   logEntry.documentDate,
+                receiverId:     logEntry.receiverId,
+                deliveryAdress: logEntry.deliveryAdress,
+                vendorAdress:   logEntry.vendorAdress,
+                taxId:          logEntry.taxId,
+                lineItems: logEntry.items.map(function (i) {
+                    return {
+                        barcode:        i.Barcode || '',
+                        quantity:       String(i.Quantity || ''),
+                        unitPrice:      String(i.UnitPrice || ''),
+                        itemNumber:     i.ItemNumber || '',
+                        description:    i.Description || '',
+                        materialNumber: i.MaterialNumber || ''
+                    };
+                })
+            };
+            var data = wrapForBuildPayload(minData);
+
+            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+            var result = await _processSalesOrder(data, stsa, logEntry.processName);
+            await autoUpdatePOLog(uuid,
+                result.success ? 'SUCCESS' : 'FAILED',
+                result.salesOrderNumber || '',
+                result.success ? '' : (result.message || ''),
+                result.itemCount || 0,
+                result.missingBarcodes || '');
+
+            console.log('retryPOLog: uuid=' + uuid + ' → success=' + result.success + ' SO=' + result.salesOrderNumber);
+            return result;
+
+        } catch (error) {
+            console.error('retryPOLog Error: ' + error.message);
+            try { await autoUpdatePOLog(uuid, 'FAILED', '', error.message, 0, ''); } catch (e2) { }
+            return { salesOrderNumber: null, message: 'Failed: ' + error.message, success: false, itemCount: 0, missingBarcodes: '' };
+        }
+    });
+
+    // ============================================================
+    // 4) getPOLogs
+    // ============================================================
+    this.on('getPOLogs', async (req) => {
+        try {
+            var statusFilter = req.data.statusFilter || '';
+            var url = OCR_BASE + 'OCRLogHead'
+                + '?$select=Uuid,ProcessName,PurchaseOrder,DeliveryDate,Status,'
+                + 'SalesOrderNumber,ErrorMessage,ItemCount,CreatedAt,UpdatedAt'
+                + '&$orderby=CreatedAt desc';
+            if (statusFilter) {
+                url += "&$filter=Status eq '" + statusFilter + "'";
+            }
+            var response = await executeHttpRequest(
+                { destinationName: 'QS4_HTTPS' },
+                { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+            );
+            return (response.data?.value || []).map(function (r) {
+                return {
+                    uuid:             r.Uuid || '',
+                    processName:      r.ProcessName || '',
+                    purchaseOrder:    r.PurchaseOrder || '',
+                    deliveryDate:     r.DeliveryDate || '',
+                    status:           r.Status || '',
+                    salesOrderNumber: r.SalesOrderNumber || '',
+                    errorMessage:     r.ErrorMessage || '',
+                    itemCount:        r.ItemCount || 0,
+                    createdAt:        r.CreatedAt || '',
+                    updatedAt:        r.UpdatedAt || ''
+                };
+            });
+        } catch (error) {
+            console.error('getPOLogs Error: ' + error.message);
+            return [];
+        }
+    });
+
+    // ============================================================
+    // 5) getPOLog
+    // ============================================================
+    this.on('getPOLog', async (req) => {
+        try {
+            var logEntry = await s4GetPOLog(req.data.uuid);
+            return {
+                uuid:             logEntry.uuid,
+                processName:      logEntry.processName,
+                pdfName:          logEntry.pdfName,
+                purchaseOrder:    logEntry.purchaseOrder,
+                deliveryDate:     logEntry.deliveryDate,
+                documentDate:     logEntry.documentDate,
+                receiverId:       logEntry.receiverId,
+                currencyCode:     logEntry.currencyCode,
+                netAmount:        logEntry.netAmount,
+                grossAmount:      logEntry.grossAmount,
+                totalVat:         logEntry.totalVat,
+                discount:         logEntry.discount,
+                deliveryAdress:   logEntry.deliveryAdress,
+                vendorAdress:     logEntry.vendorAdress,
+                status:           logEntry.status,
+                salesOrderNumber: logEntry.salesOrderNumber,
+                errorMessage:     logEntry.errorMessage,
+                itemCount:        logEntry.itemCount,
+                missingBarcodes:  logEntry.missingBarcodes,
+                createdAt:        logEntry.createdAt,
+                items:            JSON.stringify(logEntry.items || [])
+            };
+        } catch (error) {
+            console.error('getPOLog Error: ' + error.message);
+            throw error;
+        }
+    });
+
+    // ============================================================
+    // 6) updatePOLogData
+    // ============================================================
+    this.on('updatePOLogData', async (req) => {
+        try {
+            var uuid = req.data.uuid;
+            var hdr = JSON.parse(req.data.headerData || '{}');
+            var items = JSON.parse(req.data.itemsData || '[]');
+
+            await s4Patch("OCRLogHead('" + uuid + "')", {
+                PurchaseOrder:  hdr.purchaseOrder || '',
+                DeliveryDate:   toAbapDate(hdr.deliveryDate),
+                DocumentDate:   toAbapDate(hdr.documentDate),
+                ReceiverId:     hdr.receiverId || '',
+                DeliveryAdress: hdr.deliveryAdress || '',
+                VendorAdress:   hdr.vendorAdress || '',
+                UpdatedAt:      new Date().toISOString().slice(0, 19).replace('T', '').replace(/[-:]/g, '')
+            });
+
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                await s4Patch(
+                    "OCRLogItem(HeaderId='" + uuid + "',ItemNumber='" + item.itemNumber + "')", {
+                    Barcode:   item.barcode || '',
+                    Quantity:  parseFloat(item.quantity) || 0,
+                    UnitPrice: parseFloat(item.unitPrice) || 0
+                });
+            }
+            return { success: true, message: 'Updated successfully' };
+        } catch (error) {
+            console.error('updatePOLogData Error: ' + error.message);
+            return { success: false, message: error.message };
+        }
+    });
+
+    // ============================================================
+    // INTERNAL: _processSalesOrder (core logic - no logging)
+    // ============================================================
+    async function _processSalesOrder(data, stsa, processName) {
+        var salesAreaList = parseJsonField(stsa.salesAreaMap);
+        var shipToList = parseJsonField(stsa.shipToPartners);
+        var overrides = getProcessOverrides(processName);
+
+        console.log('[' + processName + '] SalesAreaMap count: ' + salesAreaList.length);
+        if (salesAreaList.length > 0) {
+            console.log('[' + processName + '] SalesAreaMap keys: ' + Object.keys(salesAreaList[0]).join(', '));
+            console.log('[' + processName + '] SalesAreaMap[0]: ' + JSON.stringify(salesAreaList[0]));
+        }
+
+        console.log('[' + processName + '] ShipToPartner count: ' + shipToList.length);
+        if (shipToList.length > 0) {
+            console.log('[' + processName + '] ShipToPartner keys: ' + Object.keys(shipToList[0]).join(', '));
+        }
+
+        var allowedBukrs = extractAllowedBukrs(salesAreaList);
+        console.log('[' + processName + '] Allowed BUKRS from salesAreaMap: [' + allowedBukrs.join(', ') + ']');
+
+        var extracted = extractEansAndTaxId(data);
+        var eans = extracted.eans;
+        var taxId = extracted.taxId;
+        console.log('[' + processName + '] EANs:' + eans.length + ' TaxId:' + taxId);
+
+        var eanProductMap = await lookupProducts(eans);
+        console.log('[' + processName + '] Products:' + Object.keys(eanProductMap).length + '/' + eans.length);
+
+        var barcodeReport = checkBarcodes(eans, eanProductMap);
+        if (barcodeReport.missing.length > 0) {
+            console.log('[' + processName + '] Missing barcodes: ' + barcodeReport.missing.join(', '));
+        }
+
+        var payload = await buildPayload(data, eanProductMap, {
+            salesAreaList: salesAreaList,
+            shipToList: shipToList,
+            processName: processName,
+            overrides: overrides,
+            allowedBukrs: allowedBukrs
+        });
+
+        var errors = payload._errors;
+        var soldToParty = payload._soldToParty;
+        var companyCode = payload._companyCode;
+        delete payload._errors;
+        delete payload._soldToParty;
+        delete payload._companyCode;
+
+        console.log('[' + processName + '] BP Result → SoldTo:' + soldToParty + ' BUKRS:' + companyCode);
+
+        if (!soldToParty) {
+            return {
+                salesOrderNumber: null,
+                message: 'SoldToParty not found. Hatalar: ' + errors.join('; '),
+                success: false,
+                itemCount: 0,
+                missingBarcodes: barcodeReport.missing.join(',')
+            };
+        }
+
+        console.log('[' + processName + '] Payload: SOType=' + payload.SalesOrderType +
+            ' SalesOrg=' + payload.SalesOrganization +
+            ' DistCh=' + payload.DistributionChannel +
+            ' Div=' + payload.OrganizationDivision +
+            ' Items=' + payload.to_Item.length + ' Errors=' + errors.length);
+
+        if (payload.to_Item.length === 0) {
+            return {
+                salesOrderNumber: null,
+                message: 'Geçerli kalem yok. Hatalar: ' + errors.join('; '),
+                success: false,
+                itemCount: 0,
+                missingBarcodes: barcodeReport.missing.join(',')
+            };
+        }
+
+        var soResult = await createSalesOrder(payload);
+        console.log('[' + processName + '] SO created: ' + soResult.salesOrder);
+
+        return {
+            salesOrderNumber: soResult.salesOrder,
+            message: 'Sales Order ' + soResult.salesOrder + ' created successfully',
+            success: true,
+            itemCount: payload.to_Item.length,
+            missingBarcodes: barcodeReport.missing.join(',')
+        };
+    }
+
+    // ============================================================
+    // INTERNAL: autoSavePOLog → POST to S/4HANA
+    // ============================================================
+    async function autoSavePOLog(fields) {
+        try {
+            var now = new Date().toISOString().slice(0, 19).replace('T', '').replace(/[-:]/g, '');
+            var body = {
+                ProcessName:    fields.processName || '',
+                PdfName:        fields.pdfName || '',
+                MailSubject:    fields.mailSubject || '',
+                PurchaseOrder:  fields.purchaseOrder || '',
+                DeliveryDate:   toAbapDate(fields.deliveryDate),
+                DocumentDate:   toAbapDate(fields.documentDate),
+                ReceiverId:     fields.receiverId || '',
+                CurrencyCode:   fields.currencyCode || '',
+                NetAmount:      parseFloat(fields.netAmount) || 0,
+                GrossAmount:    parseFloat(fields.grossAmount) || 0,
+                TotalVat:       parseFloat(fields.totalVat) || 0,
+                Discount:       parseFloat(fields.discount) || 0,
+                DeliveryAdress: fields.deliveryAdress || '',
+                VendorAdress:   fields.vendorAdress || '',
+                Status:         'PENDING',
+                CreatedAt:      now,
+                UpdatedAt:      now,
+                _Items: (fields.lineItems || []).map(function (item, idx) {
+                    return {
+                        ItemNumber:     String((idx + 1) * 10).padStart(6, '0'),
+                        Barcode:        (item.barcode || '').replace(/^0+/, ''),
+                        Description:    item.description || '',
+                        MaterialNumber: item.materialNumber || '',
+                        Unit:           'EA',
+                        Quantity:       parseFloat(item.quantity) || 0,
+                        UnitPrice:      parseFloat(item.unitPrice) || 0,
+                        Discount:       parseFloat(item.discount) || 0
+                    };
+                })
+            };
+            var response = await s4Post('OCRLogHead', body);
+            var uuid = response.data?.Uuid || '';
+            console.log('autoSavePOLog: created Uuid=' + uuid);
+            return uuid;
+        } catch (e) {
+            console.error('autoSavePOLog error: ' + e.message);
+            return null;
+        }
+    }
+
+    // ============================================================
+    // INTERNAL: autoUpdatePOLog → PATCH to S/4HANA
+    // ============================================================
+    async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, itemCount, missingBarcodes) {
+        if (!uuid) return;
+        try {
+            var now = new Date().toISOString().slice(0, 19).replace('T', '').replace(/[-:]/g, '');
+            await s4Patch("OCRLogHead('" + uuid + "')", {
+                Status:           status,
+                SalesOrderNumber: salesOrderNumber || '',
+                ErrorMessage:     errorMessage || '',
+                ItemCount:        itemCount || 0,
+                MissingBarcodes:  missingBarcodes || '',
+                UpdatedAt:        now
+            });
+            console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status);
+        } catch (e) {
+            console.error('autoUpdatePOLog error: ' + e.message);
+        }
+    }
+
+    // ============================================================
+    // INTERNAL: s4GetPOLog
+    // ============================================================
+    async function s4GetPOLog(uuid) {
+        var url = OCR_BASE + "OCRLogHead('" + uuid + "')?$expand=_Items";
+        var response = await executeHttpRequest(
+            { destinationName: 'QS4_HTTPS' },
+            { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+        );
+        var r = response.data;
+        return {
+            uuid:             r.Uuid || '',
+            processName:      r.ProcessName || '',
+            pdfName:          r.PdfName || '',
+            purchaseOrder:    r.PurchaseOrder || '',
+            deliveryDate:     r.DeliveryDate || '',
+            documentDate:     r.DocumentDate || '',
+            receiverId:       r.ReceiverId || '',
+            currencyCode:     r.CurrencyCode || '',
+            netAmount:        String(r.NetAmount || ''),
+            grossAmount:      String(r.GrossAmount || ''),
+            totalVat:         String(r.TotalVat || ''),
+            discount:         String(r.Discount || ''),
+            deliveryAdress:   r.DeliveryAdress || '',
+            vendorAdress:     r.VendorAdress || '',
+            taxId:            r.TaxId || '',
+            status:           r.Status || '',
+            salesOrderNumber: r.SalesOrderNumber || '',
+            errorMessage:     r.ErrorMessage || '',
+            itemCount:        r.ItemCount || 0,
+            missingBarcodes:  r.MissingBarcodes || '',
+            createdAt:        r.CreatedAt || '',
+            items:            r._Items || []
+        };
+    }
+
+    // ============================================================
+    // INTERNAL: S/4HANA HTTP Helpers
+    // ============================================================
+    async function s4Post(entity, body) {
+        return await executeHttpRequest(
+            { destinationName: 'QS4_HTTPS' },
+            {
+                method: 'POST',
+                url: OCR_BASE + entity,
+                data: body,
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                timeout: 30000
+            }
+        );
+    }
+
+    async function s4Patch(entityWithKey, body) {
+        return await executeHttpRequest(
+            { destinationName: 'QS4_HTTPS' },
+            {
+                method: 'PATCH',
+                url: OCR_BASE + entityWithKey,
+                data: body,
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                timeout: 30000
+            }
+        );
+    }
+
+    // ============================================================
+    // EXTRACT MINIMAL DATA (all header fields + line items)
+    // ============================================================
+    function extractMinimalData(data) {
+        var hdr = data.headerFields || {};
+        var lineItems = (data.lineItemFields || []).map(function (line) {
+            return {
+                itemNumber:     getField(line, 'itemNumber'),
+                barcode:        getField(line, 'barcode'),
+                description:    getField(line, 'description'),
+                materialNumber: getField(line, 'materialNumber'),
+                quantity:       getField(line, 'quantity'),
+                unitPrice:      getField(line, 'unitPrice'),
+                discount:       getField(line, 'discount')
+            };
+        });
+        return {
+            currencyCode:       getField(hdr, 'currencyCode'),
+            deliveryAdress:     getField(hdr, 'deliveryAdress'),
+            deliveryDate:       getField(hdr, 'deliveryDate'),
+            discount:           getField(hdr, 'discount'),
+            documentDate:       getField(hdr, 'documentDate'),
+            grossAmount:        getField(hdr, 'grossAmount'),
+            netAmount:          getField(hdr, 'netAmount'),
+            paymentTerms:       getField(hdr, 'paymentTerms'),
+            purchaseOrder:      getField(hdr, 'purchaseOrder'),
+            quantity:           getField(hdr, 'quantity'),
+            receiverId:         getField(hdr, 'receiverId'),
+            taxId:              getField(hdr, 'taxId') || getField(hdr, 'vatNumber'),
+            taxIdNumber:        getField(hdr, 'taxIdNumber'),
+            totalVAT:           getField(hdr, 'totalVAT'),
+            validity:           getField(hdr, 'validity'),
+            vendorAdress:       getField(hdr, 'vendorAdress'),
+            vendorNo:           getField(hdr, 'vendorNo'),
+            deliveryName:       getField(hdr, 'deliveryName'),
+            deliveryPhone:      getField(hdr, 'deliveryPhone') || getField(hdr, 'telephone'),
+            deliveryCity:       getField(hdr, 'deliveryCity'),
+            deliveryPostalCode: getField(hdr, 'deliveryPostalCode'),
+            deliveryCountry:    getField(hdr, 'deliveryCountry'),
+            lineItems: lineItems
+        };
+    }
+
+    // ============================================================
+    // WRAP FOR BUILD PAYLOAD (flat JSON → Document AI format)
+    // ============================================================
+    function wrapForBuildPayload(minData) {
+        function w(val) { return [{ value: val || '' }]; }
+        return {
+            headerFields: {
+                purchaseOrder:      w(minData.purchaseOrder),
+                deliveryDate:       w(minData.deliveryDate),
+                deliveryAdress:     w(minData.deliveryAdress),
+                vendorAdress:       w(minData.vendorAdress),
+                receiverId:         w(minData.receiverId),
+                taxId:              w(minData.taxId),
+                documentDate:       w(minData.documentDate),
+                deliveryName:       w(minData.deliveryName),
+                deliveryPhone:      w(minData.deliveryPhone),
+                deliveryCity:       w(minData.deliveryCity),
+                deliveryPostalCode: w(minData.deliveryPostalCode),
+                deliveryCountry:    w(minData.deliveryCountry)
+            },
+            lineItemFields: (minData.lineItems || []).map(function (item) {
+                return {
+                    barcode:        w(item.barcode),
+                    quantity:       w(item.quantity),
+                    description:    w(item.description),
+                    unitPrice:      w(item.unitPrice),
+                    itemNumber:     w(item.itemNumber),
+                    materialNumber: w(item.materialNumber),
+                    discount:       w(item.discount)
+                };
+            })
+        };
+    }
 
     // ============================================================
     // EXTRACT ALLOWED BUKRS FROM SALES AREA MAP
@@ -342,12 +751,10 @@ module.exports = cds.service.impl(async function () {
     // ============================================================
     // GET SOLD-TO COMPANY CODE (KNB1 - A_CustomerCompany)
     // ============================================================
-    // SoldToParty → KNB1 → BUKRS (allowedBukrs ile match)
-    // ============================================================
     async function getSoldToCompanyCode(soldToParty, allowedBukrs) {
         if (!soldToParty) return '';
 
-        console.log('getSoldToCompanyCode: SoldToParty=' + soldToParty + 
+        console.log('getSoldToCompanyCode: SoldToParty=' + soldToParty +
                     ' allowedBukrs=[' + (allowedBukrs || []).join(', ') + ']');
 
         try {
@@ -374,13 +781,12 @@ module.exports = cds.service.impl(async function () {
                 return '';
             }
 
-            // allowedBukrs ile eşleşeni bul
             var hasFilter = allowedBukrs && allowedBukrs.length > 0;
-            
+
             for (var i = 0; i < results.length; i++) {
                 var bukrs = results[i].CompanyCode;
                 console.log('  KUNNR=' + results[i].Customer + ' BUKRS=' + bukrs);
-                
+
                 if (hasFilter) {
                     if (allowedBukrs.indexOf(bukrs) >= 0) {
                         console.log('✓ MATCH: BUKRS=' + bukrs + ' in allowedBukrs');
@@ -389,7 +795,6 @@ module.exports = cds.service.impl(async function () {
                         console.log('  ✗ BUKRS=' + bukrs + ' not in allowedBukrs');
                     }
                 } else {
-                    // allowedBukrs yoksa ilk BUKRS'i kullan
                     console.log('No filter, using first BUKRS: ' + bukrs);
                     return bukrs;
                 }
@@ -442,6 +847,7 @@ module.exports = cds.service.impl(async function () {
         console.log('  Division: ' + soPayload.OrganizationDivision);
         console.log('  Sold to: ' + soPayload.SoldToParty);
         console.log('  PO#: ' + (soPayload.PurchaseOrderByCustomer || 'N/A'));
+        console.log('  Delivery Date: ' + (soPayload.RequestedDeliveryDate || 'N/A'));
         console.log('  Items: ' + soPayload.to_Item.length);
         if (soPayload.to_Item.length > 0) {
             console.log('  Item[0] Plant: ' + (soPayload.to_Item[0].ProductionPlant || 'N/A'));
@@ -481,8 +887,8 @@ module.exports = cds.service.impl(async function () {
         var hdr = data.headerFields;
         var purchaseOrder = getField(hdr, 'purchaseOrder');
         var poDate = getField(hdr, 'documentDate');
-        var deliveryAddress = getField(hdr, 'deliveryAdress');  // ShipTo matching için
-        var vendorAddress = getField(hdr, 'vendorAdress');      // 1SHD kontrolü için
+        var deliveryAddress = getField(hdr, 'deliveryAdress');
+        var vendorAddress = getField(hdr, 'vendorAdress');
         var parsedVendor = parseCarrefourVendorAddress(vendorAddress);
         var receiverId = getField(hdr, 'receiverId');
         var deliveryName = getField(hdr, 'deliveryName');
@@ -495,12 +901,11 @@ module.exports = cds.service.impl(async function () {
         var sapDeliveryDate = toSapDate(deliveryDate);
         console.log('buildPayload: deliveryDate raw="' + deliveryDate + '" → SAP="' + sapDeliveryDate + '"');
 
-        // ── YENİ: 1SHD için vendorAddress kontrol et ──
         vendorAddress = (vendorAddress || '').trim();
         var hasAddress = vendorAddress.length > 0;
-        
-        console.log('buildPayload: deliveryAddress="' + deliveryAddress + 
-                    '" vendorAddress="' + vendorAddress + 
+
+        console.log('buildPayload: deliveryAddress="' + deliveryAddress +
+                    '" vendorAddress="' + vendorAddress +
                     '" hasAddress=' + hasAddress);
 
         var eligible1SHD = ['carrefour', 'emaxhtml', 'retail', 'lulu', 'sharafdg', 'eros'];
@@ -514,35 +919,32 @@ module.exports = cds.service.impl(async function () {
                 break;
             }
         }
-        
+
         var soType = overrides.soType || ((isEligible && hasAddress) ? '1SHD' : '1SSR');
-        
-        console.log('buildPayload: isEligible=' + isEligible + 
-                    ' hasAddress=' + hasAddress + 
+
+        console.log('buildPayload: isEligible=' + isEligible +
+                    ' hasAddress=' + hasAddress +
                     ' override=' + (overrides.soType || 'null') +
                     ' → soType=' + soType);
 
-        // ── findShipTo'dan SoldToParty al ──
         var shipToResult = findShipTo(receiverId, hdr, shipToList);
         console.log('buildPayload: ShipToId=' + shipToResult.shipToId +
                    ' SoldToParty=' + shipToResult.soldToParty +
                    ' Company=' + shipToResult.company);
 
         var soldToParty = shipToResult.soldToParty;
-        
-        // ── YENİ: SoldToParty → KNB1 → BUKRS ──
+
         var companyCode = '';
         if (soldToParty) {
             companyCode = await getSoldToCompanyCode(soldToParty, allowedBukrs);
-            console.log('buildPayload: SoldToParty=' + soldToParty + 
+            console.log('buildPayload: SoldToParty=' + soldToParty +
                        ' → CompanyCode=' + companyCode);
         }
-        
+
         if (!companyCode) {
             console.warn('buildPayload: No CompanyCode found for SoldToParty=' + soldToParty);
         }
 
-        // ── İlk material'den MATKL_FAM belirle ──
         var lineItems = data.lineItemFields || [];
         var firstMaterial = null;
         var firstProductGroup = '';
@@ -557,17 +959,16 @@ module.exports = cds.service.impl(async function () {
                 if (firstProductGroup.length >= 3) {
                     matkl_fam = firstProductGroup.substring(0, 3);
                 }
-                console.log('buildPayload: First Material=' + firstMaterial + 
-                           ' ProductGroup=' + firstProductGroup + 
+                console.log('buildPayload: First Material=' + firstMaterial +
+                           ' ProductGroup=' + firstProductGroup +
                            ' MATKL_FAM=' + matkl_fam);
                 break;
             }
         }
 
-        // ── SalesArea belirle (MATKL_FAM ile) ──
         var salesAreaMatch = findSalesArea(salesAreaList, companyCode, matkl_fam);
-        
-        console.log('SalesArea for BUKRS=' + companyCode + 
+
+        console.log('SalesArea for BUKRS=' + companyCode +
                    ' MATKL_FAM=' + (matkl_fam || 'N/A') +
                    ' → VKORG:' + salesAreaMatch.vkorg +
                    ' VTWEG:' + salesAreaMatch.vtweg +
@@ -621,37 +1022,34 @@ module.exports = cds.service.impl(async function () {
             partnerArray.push({ PartnerFunction: 'WE', Customer: shipToResult.shipToId });
         }
 
-        
         var payload = {
-            SalesOrderType: soType,
-            SalesOrganization: salesAreaMatch.vkorg,
-            DistributionChannel: salesAreaMatch.vtweg,
-            OrganizationDivision: salesAreaMatch.spart,
+            SalesOrderType:          soType,
+            SalesOrganization:       salesAreaMatch.vkorg,
+            DistributionChannel:     salesAreaMatch.vtweg,
+            OrganizationDivision:    salesAreaMatch.spart,
             PurchaseOrderByCustomer: purchaseOrder,
-            RequestedDeliveryDate: sapDeliveryDate,
-            SoldToParty: soldToParty,
-            to_Partner: partnerArray,
-            to_Item: itemsArray,
-            _errors: errors,
-            _soldToParty: soldToParty,
-            _companyCode: companyCode
+            RequestedDeliveryDate:   sapDeliveryDate,
+            SoldToParty:             soldToParty,
+            to_Partner:              partnerArray,
+            to_Item:                 itemsArray,
+            _errors:                 errors,
+            _soldToParty:            soldToParty,
+            _companyCode:            companyCode
         };
-        
-    if (soType === '1SHD') {
-        payload.ZZ8_SOUPD_01_SDH = parsedVendor.name || deliveryName;
-        payload.ZZ8_SOUPD_02_SDH = parsedVendor.address;
-        payload.ZZ8_SOUPD_03_SDH = parsedVendor.city || deliveryCity;
-        payload.ZZ8_SOUPD_04_SDH = deliveryPostalCode;
-        payload.ZZ8_SOUPD_05_SDH = deliveryCountry;
-        payload.ZZ8_SOUPD_06_SDH = parsedVendor.phone || deliveryPhone;
+
+        if (soType === '1SHD') {
+            payload.ZZ8_SOUPD_01_SDH = parsedVendor.name || deliveryName;
+            payload.ZZ8_SOUPD_02_SDH = parsedVendor.address;
+            payload.ZZ8_SOUPD_03_SDH = parsedVendor.city || deliveryCity;
+            payload.ZZ8_SOUPD_04_SDH = deliveryPostalCode;
+            payload.ZZ8_SOUPD_05_SDH = deliveryCountry;
+            payload.ZZ8_SOUPD_06_SDH = parsedVendor.phone || deliveryPhone;
         }
         return payload;
     }
 
     // ============================================================
     // FIND SALES AREA (MATKL_FAM + Brand Priority)
-    // ============================================================
-    // Field isimleri: Brand, Bukrs, Vkorg, Vtweg, Spart, Site, MatklFam
     // ============================================================
     function findSalesArea(salesAreaList, companyCode, matkl_fam) {
         var result = { vkorg: '', vtweg: '', spart: '', plant: '' };
@@ -661,11 +1059,10 @@ module.exports = cds.service.impl(async function () {
             return result;
         }
 
-        console.log('findSalesArea: BUKRS=' + companyCode + 
-                    ' MATKL_FAM=' + (matkl_fam || 'N/A') + 
+        console.log('findSalesArea: BUKRS=' + companyCode +
+                    ' MATKL_FAM=' + (matkl_fam || 'N/A') +
                     ' in ' + salesAreaList.length + ' rows');
 
-        // ── Öncelik 1: BUKRS + MATKL_FAM (tam eşleşme) ──
         if (matkl_fam) {
             for (var i = 0; i < salesAreaList.length; i++) {
                 var row = salesAreaList[i];
@@ -683,16 +1080,15 @@ module.exports = cds.service.impl(async function () {
                                ' BUKRS=' + rowBukrs +
                                ' MATKL_FAM=' + rowMatkl +
                                ' VKORG=' + result.vkorg);
-                    
+
                     if (result.vkorg) return result;
                 }
             }
             console.log('findSalesArea: No MATKL_FAM match, trying default...');
         }
 
-        // ── Öncelik 2: BUKRS + Default (MATKL_FAM boş) + Brand="SON" öncelikli ──
         var defaultMatches = [];
-        
+
         for (var j = 0; j < salesAreaList.length; j++) {
             var row2 = salesAreaList[j];
             var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
@@ -710,7 +1106,6 @@ module.exports = cds.service.impl(async function () {
             }
         }
 
-        // SON brand'i öncelikli olarak ara
         for (var d = 0; d < defaultMatches.length; d++) {
             if (defaultMatches[d].brand === 'SON' && defaultMatches[d].vkorg) {
                 result = {
@@ -725,7 +1120,6 @@ module.exports = cds.service.impl(async function () {
             }
         }
 
-        // SON yoksa ilk default'u kullan
         if (defaultMatches.length > 0 && defaultMatches[0].vkorg) {
             result = {
                 vkorg: defaultMatches[0].vkorg,
@@ -739,7 +1133,6 @@ module.exports = cds.service.impl(async function () {
             return result;
         }
 
-        // ── Öncelik 3: Sadece BUKRS (fallback) ──
         for (var k = 0; k < salesAreaList.length; k++) {
             var row3 = salesAreaList[k];
             if (String(row3.Bukrs || row3.BUKRS || '').trim() === companyCode) {
@@ -747,7 +1140,7 @@ module.exports = cds.service.impl(async function () {
                 result.vtweg = String(row3.Vtweg || row3.VTWEG || '').trim();
                 result.spart = String(row3.Spart || row3.SPART || '').trim();
                 result.plant = String(row3.Site || row3.SITE || row3.Werks || row3.WERKS || '').trim();
-                
+
                 console.log('findSalesArea: ✓ BUKRS-only match (fallback)');
                 if (result.vkorg) return result;
             }
@@ -769,37 +1162,33 @@ module.exports = cds.service.impl(async function () {
     }
 
     // ============================================================
-    // FIND SHIP TO (SoldToParty + Company Döndürür)
-    // ============================================================
-    // RETURN: { shipToId, soldToParty, company }
-    // Field isimleri: Company, ShipToAddress, ShipToId, SoldToParty
+    // FIND SHIP TO
     // ============================================================
     function findShipTo(receiverId, headerFields, shipToList) {
         var emptyResult = { shipToId: '', soldToParty: '', company: '' };
-        
+
         if (!shipToList || shipToList.length === 0) {
             console.log('findShipTo: empty shipToList');
             return emptyResult;
         }
 
         var deliveryAddress = getField(headerFields, 'deliveryAdress');
-        
-        console.log('findShipTo: receiverId=' + receiverId + 
+
+        console.log('findShipTo: receiverId=' + receiverId +
                     ' deliveryAddress=' + deliveryAddress);
 
-        // 1) receiverId ile tam eşleşme
         if (receiverId) {
             for (var s = 0; s < shipToList.length; s++) {
                 var row = shipToList[s];
                 var stId = String(row.ShipToId || '');
-                
+
                 if (stId && stId.indexOf(receiverId) >= 0) {
                     var result = {
                         shipToId: stId,
                         soldToParty: String(row.SoldToParty || '').trim(),
                         company: String(row.Company || '').trim()
                     };
-                    console.log('findShipTo: receiverId match → ' + 
+                    console.log('findShipTo: receiverId match → ' +
                                'ShipToId=' + result.shipToId +
                                ' SoldToParty=' + result.soldToParty +
                                ' Company=' + result.company);
@@ -808,7 +1197,6 @@ module.exports = cds.service.impl(async function () {
             }
         }
 
-        // 2) Adres ile tam eşleşme
         var searchTexts = [];
         if (deliveryAddress) searchTexts.push(deliveryAddress.toLowerCase());
         if (searchTexts.length === 0) {
@@ -820,7 +1208,7 @@ module.exports = cds.service.impl(async function () {
             var row2 = shipToList[s2];
             var addr = String(row2.ShipToAddress || '').toLowerCase().trim();
             if (!addr) continue;
-            
+
             for (var t = 0; t < searchTexts.length; t++) {
                 if (searchTexts[t].indexOf(addr) >= 0 || addr.indexOf(searchTexts[t]) >= 0) {
                     var result2 = {
@@ -838,14 +1226,13 @@ module.exports = cds.service.impl(async function () {
             }
         }
 
-        // 3) Fuzzy match - kelime bazlı benzerlik
         var best = { result: emptyResult, score: 0 };
-        
+
         for (var s3 = 0; s3 < shipToList.length; s3++) {
             var row3 = shipToList[s3];
             var addr2 = String(row3.ShipToAddress || '').toLowerCase().trim();
             if (!addr2) continue;
-            
+
             var words = addr2.split(/\s+/);
             for (var t2 = 0; t2 < searchTexts.length; t2++) {
                 var matchCount = 0;
@@ -856,13 +1243,13 @@ module.exports = cds.service.impl(async function () {
                 }
                 var score = words.length > 0 ? matchCount / words.length : 0;
                 if (score > best.score && score >= 0.5) {
-                    best = { 
+                    best = {
                         result: {
                             shipToId: String(row3.ShipToId || ''),
                             soldToParty: String(row3.SoldToParty || '').trim(),
                             company: String(row3.Company || '').trim()
-                        }, 
-                        score: score 
+                        },
+                        score: score
                     };
                 }
             }
@@ -887,11 +1274,11 @@ module.exports = cds.service.impl(async function () {
     function getProcessOverrides(processName) {
         var map = {
             'Carrefour': { conditionType: 'ZMAN', soType: null },
-            'Sephora': { conditionType: 'ZMAN', soType: '1SSR' },
-            'Emax': { conditionType: 'ZMAN', soType: null },
-            'Retail': { conditionType: 'ZMAN', soType: null },
-            'Dyson': { conditionType: 'ZMAN', soType: '1SSR' },
-            'VStart': { conditionType: 'ZMAN', soType: null }
+            'Sephora':   { conditionType: 'ZMAN', soType: '1SSR' },
+            'Emax':      { conditionType: 'ZMAN', soType: null },
+            'Retail':    { conditionType: 'ZMAN', soType: null },
+            'Dyson':     { conditionType: 'ZMAN', soType: '1SSR' },
+            'VStart':    { conditionType: 'ZMAN', soType: null }
         };
         return map[processName] || { conditionType: 'ZMAN', soType: null };
     }
@@ -915,51 +1302,50 @@ module.exports = cds.service.impl(async function () {
         }
         return Array.isArray(val) ? val : [];
     }
-    function toSapDate(dateStr) {
-    if (!dateStr) return '';
-    var normalized = dateStr.trim();
-    var dmySlash = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (dmySlash) normalized = dmySlash[3] + '-' + dmySlash[2] + '-' + dmySlash[1];
-    var dmyDot = normalized.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-    if (dmyDot) normalized = dmyDot[3] + '-' + dmyDot[2] + '-' + dmyDot[1];
-    var ms = new Date(normalized).getTime();
-    if (isNaN(ms)) {
-        console.warn('toSapDate: invalid date: ' + dateStr);
-        return '';
+
+    function toAbapDate(str) {
+        if (!str) return '';
+        return str.replace(/-/g, '').substring(0, 8);
     }
-    return '/Date(' + ms + ')/';
+
+    function toSapDate(dateStr) {
+        if (!dateStr) return '';
+        var normalized = dateStr.trim();
+        var dmySlash = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+        if (dmySlash) normalized = dmySlash[3] + '-' + dmySlash[2] + '-' + dmySlash[1];
+        var dmyDot = normalized.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+        if (dmyDot) normalized = dmyDot[3] + '-' + dmyDot[2] + '-' + dmyDot[1];
+        var ms = new Date(normalized).getTime();
+        if (isNaN(ms)) {
+            console.warn('toSapDate: invalid date: ' + dateStr);
+            return '';
+        }
+        return '/Date(' + ms + ')/';
     }
 
     function parseCarrefourVendorAddress(vendorAdress) {
-    var result = { name: '', phone: '', address: '', city: '' };
-    if (!vendorAdress) return result;
-
-    // Format: Invoice:... Name:Anna Parlakian Tel:+971545867480 Address:Torino b4 apt 506 -Arjan Dubai
-    var nameMatch = vendorAdress.match(/Name:\s*([^T]+?)(?=\s+Tel:|$)/i);
-    if (nameMatch) result.name = nameMatch[1].trim();
-
-    var telMatch = vendorAdress.match(/Tel:\s*([^\s]+)/i);
-    if (telMatch) result.phone = telMatch[1].trim();
-
-    var addrMatch = vendorAdress.match(/Address:\s*(.+)$/i);
-    if (addrMatch) {
-        var fullAddress = addrMatch[1].trim();
-        // Son kelime(ler) şehir — " -City" veya son boşluktan sonraki kısım
-        var cityMatch = fullAddress.match(/-\s*([A-Za-z\s]+)$/);
-        if (cityMatch) {
-            result.city = cityMatch[1].trim();
-            result.address = fullAddress.replace(/-\s*[A-Za-z\s]+$/, '').trim();
-        } else {
-            result.address = fullAddress;
+        var result = { name: '', phone: '', address: '', city: '' };
+        if (!vendorAdress) return result;
+        var nameMatch = vendorAdress.match(/Name:\s*([^T]+?)(?=\s+Tel:|$)/i);
+        if (nameMatch) result.name = nameMatch[1].trim();
+        var telMatch = vendorAdress.match(/Tel:\s*([^\s]+)/i);
+        if (telMatch) result.phone = telMatch[1].trim();
+        var addrMatch = vendorAdress.match(/Address:\s*(.+)$/i);
+        if (addrMatch) {
+            var fullAddress = addrMatch[1].trim();
+            var cityMatch = fullAddress.match(/-\s*([A-Za-z\s]+)$/);
+            if (cityMatch) {
+                result.city = cityMatch[1].trim();
+                result.address = fullAddress.replace(/-\s*[A-Za-z\s]+$/, '').trim();
+            } else {
+                result.address = fullAddress;
+            }
         }
+        console.log('parseCarrefourVendorAddress: name="' + result.name +
+                    '" phone="' + result.phone +
+                    '" address="' + result.address +
+                    '" city="' + result.city + '"');
+        return result;
     }
-
-    console.log('parseCarrefourVendorAddress: name="' + result.name +
-                '" phone="' + result.phone +
-                '" address="' + result.address +
-                '" city="' + result.city + '"');
-    return result;
-}
-
 
 });
