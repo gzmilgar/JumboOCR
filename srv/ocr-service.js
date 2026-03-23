@@ -429,9 +429,13 @@ module.exports = cds.service.impl(async function () {
     // INTERNAL: autoSavePOLog → POST to S/4HANA
     // ============================================================
     async function autoSavePOLog(fields) {
+
+            var uuid = require('crypto').randomUUID();
+
         try {
             var now = new Date().toISOString().slice(0, 19).replace('T', '').replace(/[-:]/g, '');
             var body = {
+                Uuid:           uuid,  
                 ProcessName:    fields.processName || '',
                 PdfName:        fields.pdfName || '',
                 MailSubject:    fields.mailSubject || '',
@@ -451,6 +455,7 @@ module.exports = cds.service.impl(async function () {
                 UpdatedAt:      now,
                 _Items: (fields.lineItems || []).map(function (item, idx) {
                     return {
+                        HeaderId:       uuid, 
                         ItemNumber:     String((idx + 1) * 10).padStart(6, '0'),
                         Barcode:        (item.barcode || '').replace(/^0+/, ''),
                         Description:    item.description || '',
