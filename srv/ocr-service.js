@@ -4,8 +4,64 @@ const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 var OCR_BASE = '/sap/opu/odata4/sap/zsdocr_sb_log_o4/srvd/sap/zsd_ocr_log_srv/0001/';
 
-module.exports = cds.service.impl(async function () {
+module.exports = class extends cds.ApplicationService { async init() {
 
+    // READ handler - super.init() ÖNCE
+    this.on('READ', 'OCRLogs', async (req) => {
+        try {
+            console.log('OCRLogs READ called');
+            const response = await executeHttpRequest(
+                { destinationName: 'QS4_HTTPS' },
+                {
+                    method: 'GET',
+                    url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
+                    headers: { 'Accept': 'application/json' },
+                    timeout: 30000
+                }
+            );
+            const data = response.data?.value || [];
+            console.log('OCRLogs READ: count=' + data.length);
+            return data;
+        } catch (e) {
+            console.error('OCRLogs READ error: ' + e.message);
+            return [];
+        }
+    });
+
+    // triggerLog - super.init() ÖNCE
+    this.on('triggerLog', async (req) => {
+        var uuid = req.data.uuid;
+        try {
+            var logEntry = await s4GetPOLog(uuid);
+            if (!logEntry) return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
+            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
+            var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
+            var minData = {
+                purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
+                documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
+                deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress, taxId: logEntry.taxId,
+                lineItems: logEntry.items.map(function(i) {
+                    return { barcode: i.Barcode||'', quantity: String(i.Quantity||''), unitPrice: String(i.UnitPrice||''),
+                             itemNumber: i.ItemNumber||'', description: i.Description||'', materialNumber: i.MaterialNumber||'' };
+                })
+            };
+            var data = wrapForBuildPayload(minData);
+            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+            var result = await _processSalesOrder(data, stsa, logEntry.processName);
+            await autoUpdatePOLog(uuid, result.success?'SUCCESS':'FAILED',
+                result.salesOrderNumber||'', result.success?'':(result.message||''),
+                result.itemCount||0, result.missingBarcodes||'');
+            return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
+        } catch (e) {
+            console.error('triggerLog error: ' + e.message);
+            try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch (e2) {}
+            return { success: false, message: e.message, salesOrder: '' };
+        }
+    });
+
+    await super.init(); 
+
+    
     // ============================================================
     // 1) lookupShipToAndSalesArea
     // ============================================================
@@ -468,7 +524,7 @@ module.exports = cds.service.impl(async function () {
                 })
             };
             var response = await s4Post('OCRLogHead', body);
-            var uuid = response.data?.Uuid || '';
+            uuid = response.data?.Uuid || uuid;
             console.log('autoSavePOLog: created Uuid=' + uuid);
             return uuid;
         } catch (e) {
@@ -1353,4 +1409,4 @@ module.exports = cds.service.impl(async function () {
         return result;
     }
 
-});
+}}

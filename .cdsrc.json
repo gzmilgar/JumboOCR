@@ -2,6 +2,10 @@
   "requires": {
     "auth": {
       "kind": "dummy"
+    },
+    "db": {
+      "kind": "sqlite",
+      "url": ":memory:"
     }
   }
 }

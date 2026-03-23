@@ -78,4 +78,24 @@ service OCRService {
         success : Boolean;
         message : String;
     };
+
+ @readonly
+ @cds.persistence.skip: true
+    entity OCRLogs {
+        key Uuid          : String(36);
+            ProcessName   : String;
+            PdfName       : String;
+            Status        : String;
+            PurchaseOrder : String;
+            SalesOrderNumber : String;
+            ErrorMessage  : String;
+            CreatedAt     : String;
+    }
+
+    action triggerLog(uuid : String) returns {
+        success    : Boolean;
+        message    : String;
+        salesOrder : String;
+    };
+
 }
