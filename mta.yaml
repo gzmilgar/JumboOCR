@@ -82,3 +82,5 @@ build-parameters:
     - npm --prefix app/ocr-trigger run build:cf
     - mkdir -p app/fiori
     - cp -r app/ocr-trigger/dist/. app/fiori/
+    - rm -rf app/ocr-trigger/node_modules
+    - rm -rf app/ocr-trigger/dist    
