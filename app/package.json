@@ -1,0 +1,11 @@
+{
+  "name": "jumbo-ocr-approuter",
+  "version": "1.0.0",
+  "description": "Jumbo OCR Approuter",
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  },
+  "dependencies": {
+    "@sap/approuter": "^14"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "welcomeFile": "/com.jumbo.ocr.ocrtrigger/index.html",
+  "authenticationMethod": "route",
+  "routes": [
+    {
+      "source": "^/odata/v4/ocr/(.*)$",
+      "target": "/odata/v4/ocr/$1",
+      "destination": "srv-api",
+      "authenticationType": "xsuaa"
+    },
+    {
+      "source": "^(.*)$",
+      "target": "$1",
+      "service": "html5-apps-repo-rt",
+      "authenticationType": "xsuaa"
+    }
+  ]
+}

@@ -9,6 +9,7 @@ modules:
   requires:
   - name: ocr-connectivity
   - name: ocr-destination
+  - name: ocr-uaa
   provides:
   - name: srv-api
     properties:
@@ -18,6 +19,30 @@ modules:
     instances: 1
   build-parameters:
     builder: npm-ci
+
+- name: jumbo-ocr-approuter
+  type: approuter.nodejs
+  path: app/
+  parameters:
+    keep-existing-routes: true
+    disk-quota: 256M
+    memory: 256M
+  requires:
+  - name: srv-api
+    group: destinations
+    properties:
+      name: srv-api
+      url: ~{srv-url}
+      forwardAuthToken: true
+  - name: jumbo-ocr-repo-host
+  - name: jumbo-ocr-html5-runtime
+  - name: ocr-uaa
+  - name: ocr-destination
+  provides:
+  - name: app-api
+    properties:
+      app-url: ${default-url}
+
 - name: jumbo-ocr-app-content
   type: com.sap.application.content
   path: .
@@ -32,6 +57,7 @@ modules:
       - comjumboocrocrtrigger.zip
       name: comjumboocrocrtrigger
       target-path: resources/
+
 - name: comjumboocrocrtrigger
   type: html5
   path: app/ocr-trigger
@@ -42,12 +68,14 @@ modules:
     - npm install
     - npm run build:cf
     supported-platforms: []
+
 resources:
 - name: ocr-connectivity
   type: org.cloudfoundry.managed-service
   parameters:
     service: connectivity
     service-plan: lite
+
 - name: ocr-destination
   type: org.cloudfoundry.managed-service
   parameters:
@@ -64,12 +92,25 @@ resources:
           existing_destinations_policy: update
     service: destination
     service-plan: lite
+
 - name: jumbo-ocr-repo-host
   type: org.cloudfoundry.managed-service
   parameters:
     service: html5-apps-repo
     service-name: jumbo-ocr-html5-service
     service-plan: app-host
+
+- name: jumbo-ocr-html5-runtime
+  type: org.cloudfoundry.managed-service
+  parameters:
+    service: html5-apps-repo
+    service-plan: app-runtime
+
+- name: ocr-uaa
+  type: org.cloudfoundry.existing-service
+  parameters:
+    service-name: jumbo-ocr-xsuaa-service
+
 parameters:
   deploy_mode: html5-repo
   enable-parallel-deployments: true

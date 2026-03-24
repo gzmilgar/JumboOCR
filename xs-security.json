@@ -1,7 +1,7 @@
 {
   "xsappname": "jumbo-ocr",
   "tenant-mode": "dedicated",
-  "description": "Security profile of called application",
+  "description": "Jumbo OCR Security",
   "scopes": [],
   "role-templates": []
 }
