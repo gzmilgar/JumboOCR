@@ -34,40 +34,12 @@ modules:
       name: srv-api
       url: ~{srv-url}
       forwardAuthToken: true
-  - name: jumbo-ocr-repo-host
-  - name: jumbo-ocr-html5-runtime
   - name: ocr-uaa
   - name: ocr-destination
   provides:
   - name: app-api
     properties:
       app-url: ${default-url}
-
-- name: jumbo-ocr-app-content
-  type: com.sap.application.content
-  path: .
-  requires:
-  - name: jumbo-ocr-repo-host
-    parameters:
-      content-target: true
-  build-parameters:
-    build-result: resources
-    requires:
-    - artifacts:
-      - comjumboocrocrtrigger.zip
-      name: comjumboocrocrtrigger
-      target-path: resources/
-
-- name: comjumboocrocrtrigger
-  type: html5
-  path: app/ocr-trigger
-  build-parameters:
-    build-result: dist
-    builder: custom
-    commands:
-    - npm install
-    - npm run build:cf
-    supported-platforms: []
 
 resources:
 - name: ocr-connectivity
@@ -93,26 +65,12 @@ resources:
     service: destination
     service-plan: lite
 
-- name: jumbo-ocr-repo-host
-  type: org.cloudfoundry.managed-service
-  parameters:
-    service: html5-apps-repo
-    service-name: jumbo-ocr-html5-service
-    service-plan: app-host
-
-- name: jumbo-ocr-html5-runtime
-  type: org.cloudfoundry.managed-service
-  parameters:
-    service: html5-apps-repo
-    service-plan: app-runtime
-
 - name: ocr-uaa
   type: org.cloudfoundry.existing-service
   parameters:
     service-name: jumbo-ocr-xsuaa-service
 
 parameters:
-  deploy_mode: html5-repo
   enable-parallel-deployments: true
 build-parameters:
   before-all:
@@ -120,3 +78,7 @@ build-parameters:
     commands:
     - npm ci
     - npx cds build --production
+    - npm --prefix app/ocr-trigger install
+    - npm --prefix app/ocr-trigger run build:cf
+    - mkdir -p app/fiori
+    - cp -r app/ocr-trigger/dist/. app/fiori/

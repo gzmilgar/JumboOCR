@@ -2,6 +2,11 @@
   "xsappname": "jumbo-ocr",
   "tenant-mode": "dedicated",
   "description": "Jumbo OCR Security",
+  "oauth2-configuration": {
+    "redirect-uris": [
+      "https://jumbo-electronics-company-limited-llc-jumbo-dev-rhvtsop26b8d40b.cfapps.eu10-004.hana.ondemand.com/**"
+    ]
+  },
   "scopes": [],
   "role-templates": []
 }
