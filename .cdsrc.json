@@ -2,6 +2,7 @@
   "requires": {
     "auth": {
       "kind": "dummy"
-    }
+    },
+    "db": false
   }
 }

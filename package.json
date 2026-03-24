@@ -29,7 +29,7 @@
   },
   "cds": {
     "requires": {
-      "auth": "xsuaa"
+      "auth": "dummy"
     }
   },
   "workspaces": [

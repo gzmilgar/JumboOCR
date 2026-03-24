@@ -9,7 +9,7 @@ modules:
   requires:
   - name: ocr-connectivity
   - name: ocr-destination
-  - name: ocr-uaa
+ # ocr-uaa KALDIRILDI - zero-trust sidecar'ı devre dışı bırakır
   provides:
   - name: srv-api
     properties:
