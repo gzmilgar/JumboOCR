@@ -6,26 +6,128 @@ var OCR_BASE = '/sap/opu/odata4/sap/zsdocr_sb_log_o4/srvd/sap/zsd_ocr_log_srv/00
 
 module.exports = class extends cds.ApplicationService { async init() {
 
-    // READ handler - super.init() ÖNCE
+    // ============================================================
+    // OCRLogs READ - super.init() ÖNCE (liste + tekil kayıt)
+    // ============================================================
     this.on('READ', 'OCRLogs', async (req) => {
         try {
-            console.log('OCRLogs READ called');
-            const response = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                {
-                    method: 'GET',
-                    url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
-                    headers: { 'Accept': 'application/json' },
-                    timeout: 30000
-                }
-            );
-            const data = response.data?.value || [];
-            console.log('OCRLogs READ: count=' + data.length);
-            return data;
+            const uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
+if (uuid) {
+    const r = await s4GetPOLog(uuid);
+    return [{
+        Uuid: r.uuid || '', ProcessName: r.processName || '',
+        PdfName: r.pdfName || '', MailSubject: '',
+        PurchaseOrder: r.purchaseOrder || '', DeliveryDate: r.deliveryDate || '',
+        DocumentDate: r.documentDate || '', ReceiverId: r.receiverId || '',
+        CurrencyCode: r.currencyCode || '', NetAmount: parseFloat(r.netAmount) || 0,
+        GrossAmount: parseFloat(r.grossAmount) || 0, TotalVat: r.totalVat || '',
+        Discount: parseFloat(r.discount) || 0, DeliveryAdress: r.deliveryAdress || '',
+        VendorAdress: r.vendorAdress || '', Status: r.status || '',
+        SalesOrderNumber: r.salesOrderNumber || '', ErrorMessage: r.errorMessage || '',
+        MissingBarcodes: r.missingBarcodes || '', ItemCount: r.itemCount || 0,
+        CreatedAt: r.createdAt || '', UpdatedAt: '',
+        Items: (r.items || []).map(item => ({
+            HeaderId: r.uuid || '',
+            ItemNumber: item.ItemNumber || '',
+            Barcode: item.Barcode || '',
+            Description: item.Description || '',
+            MaterialNumber: item.MaterialNumber || '',
+            Unit: item.Unit || '',
+            Quantity: item.Quantity || 0,
+            UnitPrice: item.UnitPrice || 0,
+            Discount: item.Discount || 0
+        }))
+    }];
+}
+ else {
+                const response = await executeHttpRequest(
+                    { destinationName: 'QS4_HTTPS' },
+                    { method: 'GET', url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
+                      headers: { 'Accept': 'application/json' }, timeout: 30000 }
+                );
+                return (response.data?.value || []).map(r => ({
+                    Uuid: r.Uuid || '', ProcessName: r.ProcessName || '',
+                    PdfName: r.PdfName || '', MailSubject: r.MailSubject || '',
+                    PurchaseOrder: r.PurchaseOrder || '', DeliveryDate: r.DeliveryDate || '',
+                    DocumentDate: r.DocumentDate || '', ReceiverId: r.ReceiverId || '',
+                    CurrencyCode: r.CurrencyCode || '', NetAmount: r.NetAmount || 0,
+                    GrossAmount: r.GrossAmount || 0, TotalVat: r.TotalVat || '',
+                    Discount: r.Discount || 0, DeliveryAdress: r.DeliveryAdress || '',
+                    VendorAdress: r.VendorAdress || '', Status: r.Status || '',
+                    SalesOrderNumber: r.SalesOrderNumber || '', ErrorMessage: r.ErrorMessage || '',
+                    MissingBarcodes: r.MissingBarcodes || '', ItemCount: r.ItemCount || 0,
+                    CreatedAt: r.CreatedAt || '', UpdatedAt: r.UpdatedAt || ''
+                }));
+            }
         } catch (e) {
-            console.error('OCRLogs READ error: ' + e.message);
+            console.error('OCRLogs READ error:', e.message);
             return [];
         }
+    });
+
+    // ============================================================
+    // OCRItems READ - super.init() ÖNCE
+    // ============================================================
+this.on('READ', 'OCRItems', async (req) => {
+    try {
+        console.log('OCRItems READ called');
+        var headerId = extractKeyFromWhere(req.query?.SELECT?.where, 'HeaderId');
+
+        if (!headerId) {
+            var where = req.query && req.query.SELECT && req.query.SELECT.where;
+            if (Array.isArray(where)) {
+                for (var i = 0; i + 2 < where.length; i++) {
+                    var a = where[i], b = where[i + 2];
+                    if (a && a.ref && a.ref[0] === 'HeaderId' && b && b.val !== undefined) {
+                        headerId = b.val; break;
+                    }
+                }
+            }
+        }
+        if (!headerId && req.params && req.params[0] && typeof req.params[0] === 'object') {
+            headerId = req.params[0].HeaderId || req.params[0].Uuid || null;
+        }
+        if (!headerId) {
+            console.log('OCRItems READ: HeaderId bulunamadı');
+            return [];
+        }
+        console.log('OCRItems READ: headerId=' + headerId);
+        var logEntry = await s4GetPOLog(headerId);
+        var items = logEntry.items || [];
+        console.log('OCRItems READ: S4 count=' + items.length);
+        return items;
+    } catch (e) {
+        console.error('OCRItems READ error: ' + e.message);
+        return [];
+    }
+});
+
+
+    // UPDATE - super.init() ÖNCE
+    this.on('UPDATE', 'OCRLogs', async (req) => {
+        const uuid = req.params?.[0]?.Uuid;
+        const d = req.data;
+        try {
+            await s4Patch("OCRLogHead('" + uuid + "')", {
+                PurchaseOrder: d.PurchaseOrder, DeliveryDate: d.DeliveryDate,
+                DocumentDate: d.DocumentDate, ReceiverId: d.ReceiverId,
+                DeliveryAdress: d.DeliveryAdress, VendorAdress: d.VendorAdress,
+                UpdatedAt: new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'')
+            });
+        } catch(e) { console.error('UPDATE OCRLogs error:', e.message); }
+        return req.data;
+    });
+
+    this.on('UPDATE', 'OCRItems', async (req) => {
+        const hId = req.params?.[0]?.HeaderId;
+        const iNo = req.params?.[0]?.ItemNumber;
+        const d = req.data;
+        try {
+            await s4Patch("OCRLogItem(HeaderId='" + hId + "',ItemNumber='" + iNo + "')", {
+                Barcode: d.Barcode, Quantity: d.Quantity, UnitPrice: d.UnitPrice
+            });
+        } catch(e) { console.error('UPDATE OCRItems error:', e.message); }
+        return req.data;
     });
 
     // triggerLog - super.init() ÖNCE
@@ -59,79 +161,11 @@ module.exports = class extends cds.ApplicationService { async init() {
         }
     });
 
-    await super.init(); 
+    await super.init();
 
-    // OCRLogs - tekil kayıt (Object Page) veya liste
-    this.on('READ', 'OCRLogs', async (req) => {
-        try {
-            const uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
-            if (uuid) {
-                // Object Page - tek kayıt
-                const r = await s4GetPOLog(uuid);
-                return [{
-                    Uuid: r.uuid || '', ProcessName: r.processName || '',
-                    PdfName: r.pdfName || '', MailSubject: '', 
-                    PurchaseOrder: r.purchaseOrder || '', DeliveryDate: r.deliveryDate || '',
-                    DocumentDate: r.documentDate || '', ReceiverId: r.receiverId || '',
-                    CurrencyCode: r.currencyCode || '', NetAmount: parseFloat(r.netAmount) || 0,
-                    GrossAmount: parseFloat(r.grossAmount) || 0, TotalVat: r.totalVat || '',
-                    Discount: parseFloat(r.discount) || 0, DeliveryAdress: r.deliveryAdress || '',
-                    VendorAdress: r.vendorAdress || '', Status: r.status || '',
-                    SalesOrderNumber: r.salesOrderNumber || '', ErrorMessage: r.errorMessage || '',
-                    MissingBarcodes: r.missingBarcodes || '', ItemCount: r.itemCount || 0,
-                    CreatedAt: r.createdAt || '', UpdatedAt: ''
-                }];
-            } else {
-                // Liste
-                const response = await executeHttpRequest(
-                    { destinationName: 'QS4_HTTPS' },
-                    { method: 'GET', url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
-                      headers: { 'Accept': 'application/json' }, timeout: 30000 }
-                );
-                return (response.data?.value || []).map(r => ({
-                    Uuid: r.Uuid || '', ProcessName: r.ProcessName || '',
-                    PdfName: r.PdfName || '', MailSubject: r.MailSubject || '',
-                    PurchaseOrder: r.PurchaseOrder || '', DeliveryDate: r.DeliveryDate || '',
-                    DocumentDate: r.DocumentDate || '', ReceiverId: r.ReceiverId || '',
-                    CurrencyCode: r.CurrencyCode || '', NetAmount: r.NetAmount || 0,
-                    GrossAmount: r.GrossAmount || 0, TotalVat: r.TotalVat || '',
-                    Discount: r.Discount || 0, DeliveryAdress: r.DeliveryAdress || '',
-                    VendorAdress: r.VendorAdress || '', Status: r.Status || '',
-                    SalesOrderNumber: r.SalesOrderNumber || '', ErrorMessage: r.ErrorMessage || '',
-                    MissingBarcodes: r.MissingBarcodes || '', ItemCount: r.ItemCount || 0,
-                    CreatedAt: r.CreatedAt || '', UpdatedAt: r.UpdatedAt || ''
-                }));
-            }
-        } catch (e) {
-            console.error('OCRLogs READ error:', e.message);
-            return [];
-        }
-    });
-
-    // OCRItems - kalemler
-    this.on('READ', 'OCRItems', async (req) => {
-        try {
-            const headerUuid = extractKeyFromWhere(req.query?.SELECT?.where, 'HeaderId');
-            if (!headerUuid) return [];
-            const response = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                { method: 'GET', url: OCR_BASE + "OCRLogHead('" + headerUuid + "')/_Items",
-                  headers: { 'Accept': 'application/json' }, timeout: 30000 }
-            );
-            return (response.data?.value || []).map(item => ({
-                HeaderId: headerUuid,
-                ItemNumber: item.ItemNumber || '', Barcode: item.Barcode || '',
-                Description: item.Description || '', MaterialNumber: item.MaterialNumber || '',
-                Unit: item.Unit || '', Quantity: item.Quantity || 0,
-                UnitPrice: item.UnitPrice || 0, Discount: item.Discount || 0
-            }));
-        } catch (e) {
-            console.error('OCRItems READ error:', e.message);
-            return [];
-        }
-    });
-
+    // ============================================================
     // Bound retrigger action (Object Page butonu)
+    // ============================================================
     this.on('retrigger', 'OCRLogs', async (req) => {
         const uuid = req.params?.[0]?.Uuid || req.params?.[0];
         try {
@@ -164,35 +198,6 @@ module.exports = class extends cds.ApplicationService { async init() {
         }
     });
 
-    // UPDATE - header düzenleme
-    this.on('UPDATE', 'OCRLogs', async (req) => {
-        const uuid = req.params?.[0]?.Uuid;
-        const d = req.data;
-        try {
-            await s4Patch("OCRLogHead('" + uuid + "')", {
-                PurchaseOrder: d.PurchaseOrder, DeliveryDate: d.DeliveryDate,
-                DocumentDate: d.DocumentDate, ReceiverId: d.ReceiverId,
-                DeliveryAdress: d.DeliveryAdress, VendorAdress: d.VendorAdress,
-                UpdatedAt: new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'')
-            });
-        } catch(e) { console.error('UPDATE OCRLogs error:', e.message); }
-        return req.data;
-    });
-
-    // UPDATE - kalem düzenleme
-    this.on('UPDATE', 'OCRItems', async (req) => {
-        const hId = req.params?.[0]?.HeaderId;
-        const iNo = req.params?.[0]?.ItemNumber;
-        const d = req.data;
-        try {
-            await s4Patch("OCRLogItem(HeaderId='" + hId + "',ItemNumber='" + iNo + "')", {
-                Barcode: d.Barcode, Quantity: d.Quantity, UnitPrice: d.UnitPrice
-            });
-        } catch(e) { console.error('UPDATE OCRItems error:', e.message); }
-        return req.data;
-    });
-
-    
     // ============================================================
     // 1) lookupShipToAndSalesArea
     // ============================================================
@@ -280,7 +285,7 @@ module.exports = class extends cds.ApplicationService { async init() {
     });
 
     // ============================================================
-    // 2) processAndCreateSalesOrder (with auto-logging to S/4HANA)
+    // 2) processAndCreateSalesOrder
     // ============================================================
     this.on('processAndCreateSalesOrder', async (req) => {
         var processName = req.data.processName || 'Unknown';
@@ -523,7 +528,7 @@ module.exports = class extends cds.ApplicationService { async init() {
     });
 
     // ============================================================
-    // INTERNAL: _processSalesOrder (core logic - no logging)
+    // INTERNAL: _processSalesOrder
     // ============================================================
     async function _processSalesOrder(data, stsa, processName) {
         var salesAreaList = parseJsonField(stsa.salesAreaMap);
@@ -616,13 +621,11 @@ module.exports = class extends cds.ApplicationService { async init() {
     // INTERNAL: autoSavePOLog → POST to S/4HANA
     // ============================================================
     async function autoSavePOLog(fields) {
-
-            var uuid = require('crypto').randomUUID();
-
+        var uuid = require('crypto').randomUUID();
         try {
             var now = new Date().toISOString().slice(0, 19).replace('T', '').replace(/[-:]/g, '');
             var body = {
-                Uuid:           uuid,  
+                Uuid:           uuid,
                 ProcessName:    fields.processName || '',
                 PdfName:        fields.pdfName || '',
                 MailSubject:    fields.mailSubject || '',
@@ -631,10 +634,10 @@ module.exports = class extends cds.ApplicationService { async init() {
                 DocumentDate:   fields.documentDate || null,
                 ReceiverId:     fields.receiverId || '',
                 CurrencyCode:   fields.currencyCode || '',
-                NetAmount:      parseFloat(fields.netAmount) || 0,      // CURR → 0 kabul eder
-                GrossAmount:    parseFloat(fields.grossAmount) || 0,    // CURR → 0 kabul eder
+                NetAmount:      parseFloat(fields.netAmount) || 0,
+                GrossAmount:    parseFloat(fields.grossAmount) || 0,
                 TotalVat:       fields.totalVat ? String(fields.totalVat) : '000000000',
-                Discount:       parseFloat(fields.discount) || 0,       // DEC → 0 kabul eder
+                Discount:       parseFloat(fields.discount) || 0,
                 DeliveryAdress: fields.deliveryAdress || '',
                 VendorAdress:   fields.vendorAdress || '',
                 Status:         'PENDING',
@@ -642,7 +645,7 @@ module.exports = class extends cds.ApplicationService { async init() {
                 UpdatedAt:      now,
                 _Items: (fields.lineItems || []).map(function (item, idx) {
                     return {
-                        HeaderId:       uuid, 
+                        HeaderId:       uuid,
                         ItemNumber:     String((idx + 1) * 10).padStart(6, '0'),
                         Barcode:        (item.barcode || '').replace(/^0+/, ''),
                         Description:    item.description || '',
@@ -751,7 +754,7 @@ module.exports = class extends cds.ApplicationService { async init() {
     }
 
     // ============================================================
-    // EXTRACT MINIMAL DATA (all header fields + line items)
+    // EXTRACT MINIMAL DATA
     // ============================================================
     function extractMinimalData(data) {
         var hdr = data.headerFields || {};
@@ -794,7 +797,7 @@ module.exports = class extends cds.ApplicationService { async init() {
     }
 
     // ============================================================
-    // WRAP FOR BUILD PAYLOAD (flat JSON → Document AI format)
+    // WRAP FOR BUILD PAYLOAD
     // ============================================================
     function wrapForBuildPayload(minData) {
         function w(val) { return [{ value: val || '' }]; }
@@ -828,17 +831,14 @@ module.exports = class extends cds.ApplicationService { async init() {
     }
 
     // ============================================================
-    // EXTRACT ALLOWED BUKRS FROM SALES AREA MAP
+    // EXTRACT ALLOWED BUKRS
     // ============================================================
     function extractAllowedBukrs(salesAreaList) {
         if (!salesAreaList || salesAreaList.length === 0) return [];
-
         var bukrsSet = {};
         for (var i = 0; i < salesAreaList.length; i++) {
             var bukrs = String(salesAreaList[i].Bukrs || salesAreaList[i].BUKRS || '').trim();
-            if (bukrs) {
-                bukrsSet[bukrs] = true;
-            }
+            if (bukrs) { bukrsSet[bukrs] = true; }
         }
         return Object.keys(bukrsSet);
     }
@@ -889,14 +889,12 @@ module.exports = class extends cds.ApplicationService { async init() {
             total: eans.length,
             found: found,
             missing: missing,
-            matchRate: eans.length > 0
-                ? Math.round((found.length / eans.length) * 100)
-                : 0
+            matchRate: eans.length > 0 ? Math.round((found.length / eans.length) * 100) : 0
         };
     }
 
     // ============================================================
-    // LOOKUP PRODUCTS (ProductGroup ile birlikte)
+    // LOOKUP PRODUCTS
     // ============================================================
     async function lookupProducts(eans) {
         if (!eans || eans.length === 0) return {};
@@ -915,12 +913,7 @@ module.exports = class extends cds.ApplicationService { async init() {
             try {
                 var response = await executeHttpRequest(
                     { destinationName: 'QS4_HTTPS' },
-                    {
-                        method: 'GET',
-                        url: url,
-                        headers: { 'Accept': 'application/json' },
-                        timeout: 30000
-                    }
+                    { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
                 );
                 var results = response.data?.d?.results || [];
                 for (var r = 0; r < results.length; r++) {
@@ -941,44 +934,28 @@ module.exports = class extends cds.ApplicationService { async init() {
     }
 
     // ============================================================
-    // GET SOLD-TO COMPANY CODE (KNB1 - A_CustomerCompany)
+    // GET SOLD-TO COMPANY CODE
     // ============================================================
     async function getSoldToCompanyCode(soldToParty, allowedBukrs) {
         if (!soldToParty) return '';
-
         console.log('getSoldToCompanyCode: SoldToParty=' + soldToParty +
                     ' allowedBukrs=[' + (allowedBukrs || []).join(', ') + ']');
-
         try {
             var url = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_CustomerCompany"
                 + "?$filter=" + encodeURIComponent("Customer eq '" + soldToParty + "'")
                 + "&$select=Customer,CompanyCode"
                 + "&$format=json";
-
             var response = await executeHttpRequest(
                 { destinationName: 'QS4_HTTPS' },
-                {
-                    method: 'GET',
-                    url: url,
-                    headers: { 'Accept': 'application/json' },
-                    timeout: 30000
-                }
+                { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
             );
-
             var results = response.data?.d?.results || [];
             console.log('KNB1 results: ' + results.length);
-
-            if (results.length === 0) {
-                console.log('No company code found for SoldToParty: ' + soldToParty);
-                return '';
-            }
-
+            if (results.length === 0) { console.log('No company code found for SoldToParty: ' + soldToParty); return ''; }
             var hasFilter = allowedBukrs && allowedBukrs.length > 0;
-
             for (var i = 0; i < results.length; i++) {
                 var bukrs = results[i].CompanyCode;
                 console.log('  KUNNR=' + results[i].Customer + ' BUKRS=' + bukrs);
-
                 if (hasFilter) {
                     if (allowedBukrs.indexOf(bukrs) >= 0) {
                         console.log('✓ MATCH: BUKRS=' + bukrs + ' in allowedBukrs');
@@ -991,10 +968,8 @@ module.exports = class extends cds.ApplicationService { async init() {
                     return bukrs;
                 }
             }
-
             console.log('✗ No matching BUKRS found in allowedBukrs');
             return '';
-
         } catch (e) {
             console.error('getSoldToCompanyCode error: ' + e.message);
             return '';
@@ -1005,33 +980,16 @@ module.exports = class extends cds.ApplicationService { async init() {
     // CREATE SALES ORDER
     // ============================================================
     async function createSalesOrder(soPayload) {
-        var requiredFields = [
-            'SalesOrderType',
-            'SalesOrganization',
-            'DistributionChannel',
-            'OrganizationDivision',
-            'SoldToParty'
-        ];
+        var requiredFields = ['SalesOrderType','SalesOrganization','DistributionChannel','OrganizationDivision','SoldToParty'];
         var missing = requiredFields.filter(function (f) { return !soPayload[f]; });
-        if (missing.length > 0) {
-            throw new Error('Missing required header fields: ' + missing.join(', '));
-        }
-        if (!soPayload.to_Item || soPayload.to_Item.length === 0) {
-            throw new Error('Missing line items (to_Item)');
-        }
+        if (missing.length > 0) throw new Error('Missing required header fields: ' + missing.join(', '));
+        if (!soPayload.to_Item || soPayload.to_Item.length === 0) throw new Error('Missing line items (to_Item)');
         soPayload.to_Item.forEach(function (item, idx) {
             var itemNo = item.SalesOrderItem || ((idx + 1) * 10);
-            if (!item.Material) {
-                throw new Error('Item ' + itemNo + ': Missing Material');
-            }
-            if (!item.RequestedQuantity || Number(item.RequestedQuantity) <= 0) {
-                throw new Error('Item ' + itemNo + ': Missing or invalid RequestedQuantity');
-            }
-            if (!item.RequestedQuantityUnit) {
-                item.RequestedQuantityUnit = 'EA';
-            }
+            if (!item.Material) throw new Error('Item ' + itemNo + ': Missing Material');
+            if (!item.RequestedQuantity || Number(item.RequestedQuantity) <= 0) throw new Error('Item ' + itemNo + ': Missing or invalid RequestedQuantity');
+            if (!item.RequestedQuantityUnit) item.RequestedQuantityUnit = 'EA';
         });
-
         console.log('=== SO Summary ===');
         console.log('  Type: ' + soPayload.SalesOrderType);
         console.log('  Sales Org: ' + soPayload.SalesOrganization);
@@ -1041,33 +999,25 @@ module.exports = class extends cds.ApplicationService { async init() {
         console.log('  PO#: ' + (soPayload.PurchaseOrderByCustomer || 'N/A'));
         console.log('  Delivery Date: ' + (soPayload.RequestedDeliveryDate || 'N/A'));
         console.log('  Items: ' + soPayload.to_Item.length);
-        if (soPayload.to_Item.length > 0) {
-            console.log('  Item[0] Plant: ' + (soPayload.to_Item[0].ProductionPlant || 'N/A'));
-        }
+        if (soPayload.to_Item.length > 0) console.log('  Item[0] Plant: ' + (soPayload.to_Item[0].ProductionPlant || 'N/A'));
         console.log('==================');
-
         var response = await executeHttpRequest(
             { destinationName: 'QS4_HTTPS' },
             {
                 method: 'POST',
                 url: '/sap/opu/odata/sap/API_SALES_ORDER_SRV/A_SalesOrder',
                 data: soPayload,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                 timeout: 60000
             }
         );
         var salesOrder = response.data?.d?.SalesOrder;
-        if (!salesOrder) {
-            throw new Error('No SalesOrder number in S/4HANA response');
-        }
+        if (!salesOrder) throw new Error('No SalesOrder number in S/4HANA response');
         return { salesOrder: salesOrder };
     }
 
     // ============================================================
-    // BUILD PAYLOAD (ASYNC - KNB1 Lookup)
+    // BUILD PAYLOAD
     // ============================================================
     async function buildPayload(data, eanProductMap, ctx) {
         var salesAreaList = ctx.salesAreaList;
@@ -1106,36 +1056,24 @@ module.exports = class extends cds.ApplicationService { async init() {
 
         var isEligible = false;
         for (var e = 0; e < eligible1SHD.length; e++) {
-            if (companyLower.indexOf(eligible1SHD[e]) >= 0) {
-                isEligible = true;
-                break;
-            }
+            if (companyLower.indexOf(eligible1SHD[e]) >= 0) { isEligible = true; break; }
         }
 
         var soType = overrides.soType || ((isEligible && hasAddress) ? '1SHD' : '1SSR');
-
-        console.log('buildPayload: isEligible=' + isEligible +
-                    ' hasAddress=' + hasAddress +
-                    ' override=' + (overrides.soType || 'null') +
-                    ' → soType=' + soType);
+        console.log('buildPayload: isEligible=' + isEligible + ' hasAddress=' + hasAddress +
+                    ' override=' + (overrides.soType || 'null') + ' → soType=' + soType);
 
         var shipToResult = findShipTo(receiverId, hdr, shipToList);
         console.log('buildPayload: ShipToId=' + shipToResult.shipToId +
-                   ' SoldToParty=' + shipToResult.soldToParty +
-                   ' Company=' + shipToResult.company);
+                   ' SoldToParty=' + shipToResult.soldToParty + ' Company=' + shipToResult.company);
 
         var soldToParty = shipToResult.soldToParty;
-
         var companyCode = '';
         if (soldToParty) {
             companyCode = await getSoldToCompanyCode(soldToParty, allowedBukrs);
-            console.log('buildPayload: SoldToParty=' + soldToParty +
-                       ' → CompanyCode=' + companyCode);
+            console.log('buildPayload: SoldToParty=' + soldToParty + ' → CompanyCode=' + companyCode);
         }
-
-        if (!companyCode) {
-            console.warn('buildPayload: No CompanyCode found for SoldToParty=' + soldToParty);
-        }
+        if (!companyCode) console.warn('buildPayload: No CompanyCode found for SoldToParty=' + soldToParty);
 
         var lineItems = data.lineItemFields || [];
         var firstMaterial = null;
@@ -1143,29 +1081,21 @@ module.exports = class extends cds.ApplicationService { async init() {
         var matkl_fam = '';
 
         for (var m = 0; m < lineItems.length && !firstMaterial; m++) {
-            var barcode = String(getField(lineItems[m], 'barcode'))
-                .replace(/\s/g, '').replace(/^0+/, '');
+            var barcode = String(getField(lineItems[m], 'barcode')).replace(/\s/g, '').replace(/^0+/, '');
             if (barcode && eanProductMap[barcode] && eanProductMap[barcode].material) {
                 firstMaterial = eanProductMap[barcode].material;
                 firstProductGroup = eanProductMap[barcode].productGroup || '';
-                if (firstProductGroup.length >= 3) {
-                    matkl_fam = firstProductGroup.substring(0, 3);
-                }
+                if (firstProductGroup.length >= 3) matkl_fam = firstProductGroup.substring(0, 3);
                 console.log('buildPayload: First Material=' + firstMaterial +
-                           ' ProductGroup=' + firstProductGroup +
-                           ' MATKL_FAM=' + matkl_fam);
+                           ' ProductGroup=' + firstProductGroup + ' MATKL_FAM=' + matkl_fam);
                 break;
             }
         }
 
         var salesAreaMatch = findSalesArea(salesAreaList, companyCode, matkl_fam);
-
-        console.log('SalesArea for BUKRS=' + companyCode +
-                   ' MATKL_FAM=' + (matkl_fam || 'N/A') +
-                   ' → VKORG:' + salesAreaMatch.vkorg +
-                   ' VTWEG:' + salesAreaMatch.vtweg +
-                   ' SPART:' + salesAreaMatch.spart +
-                   ' Plant:' + salesAreaMatch.plant);
+        console.log('SalesArea for BUKRS=' + companyCode + ' MATKL_FAM=' + (matkl_fam || 'N/A') +
+                   ' → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
+                   ' SPART:' + salesAreaMatch.spart + ' Plant:' + salesAreaMatch.plant);
 
         var itemsArray = [];
         var errors = [];
@@ -1181,14 +1111,10 @@ module.exports = class extends cds.ApplicationService { async init() {
             if (!barcode2 && description.length > 100) continue;
 
             var material = '';
-            if (barcode2 && eanProductMap[barcode2]) {
-                material = eanProductMap[barcode2].material;
-            }
+            if (barcode2 && eanProductMap[barcode2]) material = eanProductMap[barcode2].material;
             if (!material && description) {
                 var eanKeys = Object.keys(eanProductMap);
-                for (var j = 0; j < eanKeys.length; j++) {
-                    break;
-                }
+                for (var j = 0; j < eanKeys.length; j++) { break; }
             }
             if (!material) {
                 errors.push('Satır ' + (i + 1) + ': Malzeme bulunamadı (EAN: ' + barcode2 + ')');
@@ -1241,18 +1167,15 @@ module.exports = class extends cds.ApplicationService { async init() {
     }
 
     // ============================================================
-    // FIND SALES AREA (MATKL_FAM + Brand Priority)
+    // FIND SALES AREA
     // ============================================================
     function findSalesArea(salesAreaList, companyCode, matkl_fam) {
         var result = { vkorg: '', vtweg: '', spart: '', plant: '' };
-
         if (!salesAreaList || salesAreaList.length === 0 || !companyCode) {
             console.log('findSalesArea: empty list or no companyCode');
             return result;
         }
-
-        console.log('findSalesArea: BUKRS=' + companyCode +
-                    ' MATKL_FAM=' + (matkl_fam || 'N/A') +
+        console.log('findSalesArea: BUKRS=' + companyCode + ' MATKL_FAM=' + (matkl_fam || 'N/A') +
                     ' in ' + salesAreaList.length + ' rows');
 
         if (matkl_fam) {
@@ -1260,19 +1183,14 @@ module.exports = class extends cds.ApplicationService { async init() {
                 var row = salesAreaList[i];
                 var rowBukrs = String(row.Bukrs || row.BUKRS || '').trim();
                 var rowMatkl = String(row.MatklFam || row.MATKL_FAM || '').trim();
-
                 if (rowBukrs === companyCode && rowMatkl === matkl_fam) {
                     result.vkorg = String(row.Vkorg || row.VKORG || '').trim();
                     result.vtweg = String(row.Vtweg || row.VTWEG || '').trim();
                     result.spart = String(row.Spart || row.SPART || '').trim();
                     result.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
-
                     console.log('findSalesArea: ✓ MATKL_FAM MATCH row ' + i +
-                               ' Brand=' + (row.Brand || '') +
-                               ' BUKRS=' + rowBukrs +
-                               ' MATKL_FAM=' + rowMatkl +
-                               ' VKORG=' + result.vkorg);
-
+                               ' Brand=' + (row.Brand || '') + ' BUKRS=' + rowBukrs +
+                               ' MATKL_FAM=' + rowMatkl + ' VKORG=' + result.vkorg);
                     if (result.vkorg) return result;
                 }
             }
@@ -1280,13 +1198,11 @@ module.exports = class extends cds.ApplicationService { async init() {
         }
 
         var defaultMatches = [];
-
         for (var j = 0; j < salesAreaList.length; j++) {
             var row2 = salesAreaList[j];
             var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
             var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
             var rowBrand = String(row2.Brand || row2.BRAND || '').trim().toUpperCase();
-
             if (rowBukrs2 === companyCode && !rowMatkl2) {
                 defaultMatches.push({
                     brand: rowBrand,
@@ -1300,28 +1216,17 @@ module.exports = class extends cds.ApplicationService { async init() {
 
         for (var d = 0; d < defaultMatches.length; d++) {
             if (defaultMatches[d].brand === 'SON' && defaultMatches[d].vkorg) {
-                result = {
-                    vkorg: defaultMatches[d].vkorg,
-                    vtweg: defaultMatches[d].vtweg,
-                    spart: defaultMatches[d].spart,
-                    plant: defaultMatches[d].plant
-                };
-                console.log('findSalesArea: ✓ DEFAULT MATCH (Brand=SON priority)' +
-                           ' VKORG=' + result.vkorg);
+                result = { vkorg: defaultMatches[d].vkorg, vtweg: defaultMatches[d].vtweg,
+                           spart: defaultMatches[d].spart, plant: defaultMatches[d].plant };
+                console.log('findSalesArea: ✓ DEFAULT MATCH (Brand=SON priority) VKORG=' + result.vkorg);
                 return result;
             }
         }
 
         if (defaultMatches.length > 0 && defaultMatches[0].vkorg) {
-            result = {
-                vkorg: defaultMatches[0].vkorg,
-                vtweg: defaultMatches[0].vtweg,
-                spart: defaultMatches[0].spart,
-                plant: defaultMatches[0].plant
-            };
-            console.log('findSalesArea: ✓ DEFAULT MATCH (first found)' +
-                       ' Brand=' + defaultMatches[0].brand +
-                       ' VKORG=' + result.vkorg);
+            result = { vkorg: defaultMatches[0].vkorg, vtweg: defaultMatches[0].vtweg,
+                       spart: defaultMatches[0].spart, plant: defaultMatches[0].plant };
+            console.log('findSalesArea: ✓ DEFAULT MATCH (first found) Brand=' + defaultMatches[0].brand + ' VKORG=' + result.vkorg);
             return result;
         }
 
@@ -1332,7 +1237,6 @@ module.exports = class extends cds.ApplicationService { async init() {
                 result.vtweg = String(row3.Vtweg || row3.VTWEG || '').trim();
                 result.spart = String(row3.Spart || row3.SPART || '').trim();
                 result.plant = String(row3.Site || row3.SITE || row3.Werks || row3.WERKS || '').trim();
-
                 console.log('findSalesArea: ✓ BUKRS-only match (fallback)');
                 if (result.vkorg) return result;
             }
@@ -1342,14 +1246,10 @@ module.exports = class extends cds.ApplicationService { async init() {
         var seen = {};
         for (var u = 0; u < salesAreaList.length; u++) {
             var b = String(salesAreaList[u].Bukrs || salesAreaList[u].BUKRS || '');
-            if (b && !seen[b]) {
-                seen[b] = true;
-                uniqueBukrs.push(b);
-            }
+            if (b && !seen[b]) { seen[b] = true; uniqueBukrs.push(b); }
         }
         console.log('findSalesArea: ✗ No match for BUKRS=' + companyCode +
             '. Available: [' + uniqueBukrs.join(', ') + ']');
-
         return result;
     }
 
@@ -1358,32 +1258,22 @@ module.exports = class extends cds.ApplicationService { async init() {
     // ============================================================
     function findShipTo(receiverId, headerFields, shipToList) {
         var emptyResult = { shipToId: '', soldToParty: '', company: '' };
-
         if (!shipToList || shipToList.length === 0) {
             console.log('findShipTo: empty shipToList');
             return emptyResult;
         }
-
         var deliveryAddress = getField(headerFields, 'deliveryAdress');
-
-        console.log('findShipTo: receiverId=' + receiverId +
-                    ' deliveryAddress=' + deliveryAddress);
+        console.log('findShipTo: receiverId=' + receiverId + ' deliveryAddress=' + deliveryAddress);
 
         if (receiverId) {
             for (var s = 0; s < shipToList.length; s++) {
                 var row = shipToList[s];
                 var stId = String(row.ShipToId || '');
-
                 if (stId && stId.indexOf(receiverId) >= 0) {
-                    var result = {
-                        shipToId: stId,
-                        soldToParty: String(row.SoldToParty || '').trim(),
-                        company: String(row.Company || '').trim()
-                    };
-                    console.log('findShipTo: receiverId match → ' +
-                               'ShipToId=' + result.shipToId +
-                               ' SoldToParty=' + result.soldToParty +
-                               ' Company=' + result.company);
+                    var result = { shipToId: stId, soldToParty: String(row.SoldToParty || '').trim(),
+                                   company: String(row.Company || '').trim() };
+                    console.log('findShipTo: receiverId match → ShipToId=' + result.shipToId +
+                               ' SoldToParty=' + result.soldToParty + ' Company=' + result.company);
                     return result;
                 }
             }
@@ -1400,58 +1290,41 @@ module.exports = class extends cds.ApplicationService { async init() {
             var row2 = shipToList[s2];
             var addr = String(row2.ShipToAddress || '').toLowerCase().trim();
             if (!addr) continue;
-
             for (var t = 0; t < searchTexts.length; t++) {
                 if (searchTexts[t].indexOf(addr) >= 0 || addr.indexOf(searchTexts[t]) >= 0) {
-                    var result2 = {
-                        shipToId: String(row2.ShipToId || ''),
-                        soldToParty: String(row2.SoldToParty || '').trim(),
-                        company: String(row2.Company || '').trim()
-                    };
-                    console.log('findShipTo: address match → ' +
-                               'ShipToId=' + result2.shipToId +
-                               ' SoldToParty=' + result2.soldToParty +
-                               ' Company=' + result2.company +
-                               ' (addr: ' + addr + ')');
+                    var result2 = { shipToId: String(row2.ShipToId || ''),
+                                    soldToParty: String(row2.SoldToParty || '').trim(),
+                                    company: String(row2.Company || '').trim() };
+                    console.log('findShipTo: address match → ShipToId=' + result2.shipToId +
+                               ' SoldToParty=' + result2.soldToParty + ' (addr: ' + addr + ')');
                     return result2;
                 }
             }
         }
 
         var best = { result: emptyResult, score: 0 };
-
         for (var s3 = 0; s3 < shipToList.length; s3++) {
             var row3 = shipToList[s3];
             var addr2 = String(row3.ShipToAddress || '').toLowerCase().trim();
             if (!addr2) continue;
-
             var words = addr2.split(/\s+/);
             for (var t2 = 0; t2 < searchTexts.length; t2++) {
                 var matchCount = 0;
                 for (var w = 0; w < words.length; w++) {
-                    if (words[w].length > 2 && searchTexts[t2].indexOf(words[w]) >= 0) {
-                        matchCount++;
-                    }
+                    if (words[w].length > 2 && searchTexts[t2].indexOf(words[w]) >= 0) matchCount++;
                 }
                 var score = words.length > 0 ? matchCount / words.length : 0;
                 if (score > best.score && score >= 0.5) {
-                    best = {
-                        result: {
-                            shipToId: String(row3.ShipToId || ''),
-                            soldToParty: String(row3.SoldToParty || '').trim(),
-                            company: String(row3.Company || '').trim()
-                        },
-                        score: score
-                    };
+                    best = { result: { shipToId: String(row3.ShipToId || ''),
+                                       soldToParty: String(row3.SoldToParty || '').trim(),
+                                       company: String(row3.Company || '').trim() }, score: score };
                 }
             }
         }
 
         if (best.result.shipToId) {
-            console.log('findShipTo: fuzzy match → ' +
-                       'ShipToId=' + best.result.shipToId +
+            console.log('findShipTo: fuzzy match → ShipToId=' + best.result.shipToId +
                        ' SoldToParty=' + best.result.soldToParty +
-                       ' Company=' + best.result.company +
                        ' (score: ' + best.score.toFixed(2) + ')');
             return best.result;
         }
@@ -1540,7 +1413,7 @@ module.exports = class extends cds.ApplicationService { async init() {
         return result;
     }
 
-       function extractKeyFromWhere(where, fieldName) {
+    function extractKeyFromWhere(where, fieldName) {
         if (!where || !Array.isArray(where)) return null;
         const find = (arr) => {
             for (let i = 0; i < arr.length; i++) {
@@ -1551,4 +1424,5 @@ module.exports = class extends cds.ApplicationService { async init() {
         };
         return find(where);
     }
+
 }}
