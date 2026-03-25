@@ -1,7 +1,12 @@
 using OCRService as service from '../../srv/ocr-service';
 
+// Edit button support
+annotate service.OCRLogs with @(
+    Capabilities.UpdateRestrictions: { Updatable: true },
+);
+
 // ============================================================
-// List Report - Tablo kolonları
+// List Report - Table columns
 // ============================================================
 annotate service.OCRLogs with @(
     UI.LineItem: [
@@ -21,67 +26,67 @@ annotate service.OCRLogs with @(
 );
 
 // ============================================================
-// Object Page - Alan grupları
+// Object Page - Field groups
 // ============================================================
 annotate service.OCRLogs with @(
     UI.FieldGroup #Status : {
         $Type : 'UI.FieldGroupType',
         Data  : [
-            { $Type: 'UI.DataField', Value: Status,           Label: 'Status'        },
-            { $Type: 'UI.DataField', Value: SalesOrderNumber, Label: 'Sales Order'   },
-            { $Type: 'UI.DataField', Value: ErrorMessage,     Label: 'Error Message' },
+            { $Type: 'UI.DataField', Value: Status,           Label: 'Status'           },
+            { $Type: 'UI.DataField', Value: SalesOrderNumber, Label: 'Sales Order'      },
+            { $Type: 'UI.DataField', Value: ErrorMessage,     Label: 'Error Message'    },
             { $Type: 'UI.DataField', Value: MissingBarcodes,  Label: 'Missing Barcodes' },
         ]
     },
     UI.FieldGroup #OrderInfo : {
         $Type : 'UI.FieldGroupType',
         Data  : [
-            { $Type: 'UI.DataField', Value: PurchaseOrder,  Label: 'Purchase Order'  },
-            { $Type: 'UI.DataField', Value: DeliveryDate,   Label: 'Delivery Date'   },
-            { $Type: 'UI.DataField', Value: DocumentDate,   Label: 'Document Date'   },
-            { $Type: 'UI.DataField', Value: ReceiverId,     Label: 'Receiver ID'     },
-            { $Type: 'UI.DataField', Value: CurrencyCode,   Label: 'Currency'        },
-            { $Type: 'UI.DataField', Value: NetAmount,      Label: 'Net Amount'      },
-            { $Type: 'UI.DataField', Value: GrossAmount,    Label: 'Gross Amount'    },
+            { $Type: 'UI.DataField', Value: PurchaseOrder,  Label: 'Purchase Order' },
+            { $Type: 'UI.DataField', Value: DeliveryDate,   Label: 'Delivery Date'  },
+            { $Type: 'UI.DataField', Value: DocumentDate,   Label: 'Document Date'  },
+            { $Type: 'UI.DataField', Value: ReceiverId,     Label: 'Receiver ID'    },
+            { $Type: 'UI.DataField', Value: CurrencyCode,   Label: 'Currency'       },
+            { $Type: 'UI.DataField', Value: NetAmount,      Label: 'Net Amount'     },
+            { $Type: 'UI.DataField', Value: GrossAmount,    Label: 'Gross Amount'   },
         ]
     },
     UI.FieldGroup #LogInfo : {
         $Type : 'UI.FieldGroupType',
         Data  : [
-            { $Type: 'UI.DataField', Value: PdfName,        Label: 'PDF Name'        },
-            { $Type: 'UI.DataField', Value: MailSubject,    Label: 'Mail Subject'    },
-            { $Type: 'UI.DataField', Value: DeliveryAdress, Label: 'Delivery Addr'   },
-            { $Type: 'UI.DataField', Value: VendorAdress,   Label: 'Vendor Addr'     },
-            { $Type: 'UI.DataField', Value: CreatedAt,      Label: 'Created At'      },
-            { $Type: 'UI.DataField', Value: UpdatedAt,      Label: 'Updated At'      },
+            { $Type: 'UI.DataField', Value: PdfName,        Label: 'PDF Name'       },
+            { $Type: 'UI.DataField', Value: MailSubject,    Label: 'Mail Subject'   },
+            { $Type: 'UI.DataField', Value: DeliveryAdress, Label: 'Delivery Addr'  },
+            { $Type: 'UI.DataField', Value: VendorAdress,   Label: 'Vendor Addr'    },
+            { $Type: 'UI.DataField', Value: CreatedAt,      Label: 'Created At'     },
+            { $Type: 'UI.DataField', Value: UpdatedAt,      Label: 'Updated At'     },
         ]
     },
 
     UI.Facets: [
         {
             $Type  : 'UI.CollectionFacet',
-            Label  : 'Genel Bilgiler',
+            Label  : 'General Information',
             Facets : [
                 {
                     $Type  : 'UI.ReferenceFacet',
-                    Label  : 'Durum',
+                    Label  : 'Status',
                     Target : '@UI.FieldGroup#Status',
                 },
                 {
                     $Type  : 'UI.ReferenceFacet',
-                    Label  : 'Sipariş Bilgileri',
+                    Label  : 'Order Info',
                     Target : '@UI.FieldGroup#OrderInfo',
                 },
                 {
                     $Type  : 'UI.ReferenceFacet',
-                    Label  : 'Log Detayı',
+                    Label  : 'Log Details',
                     Target : '@UI.FieldGroup#LogInfo',
                 },
             ],
         },
         {
             $Type  : 'UI.ReferenceFacet',
-            Label  : 'Kalemler',
+            Label  : 'Items',
             Target : 'Items/@UI.LineItem',
         },
     ],
@@ -96,7 +101,7 @@ annotate service.OCRLogs with @(
 );
 
 // ============================================================
-// OCRItems - Kalem tablosu kolonları
+// OCRItems - Items table columns
 // ============================================================
 annotate service.OCRItems with @(
     UI.LineItem: [

@@ -3,6 +3,11 @@
     "auth": {
       "kind": "dummy"
     },
-    "db": false
+    "db": {
+      "kind": "sqlite",
+      "credentials": {
+        "url": ":memory:"
+      }
+    }
   }
 }
