@@ -125,4 +125,27 @@ service OCRService {
         UnitPrice            : Decimal;
         Discount             : Decimal;
     }
+
+ 
+    // ==========================================
+    // Actions
+    // ==========================================
+    action triggerOCR(
+        uuid        : String,
+        pdfContent  : String,
+        pdfName     : String,
+        mailSubject : String
+    ) returns {
+        success : Boolean;
+        message : String;
+        uuid    : String;
+    };
+
+
+    action deletePOLog(
+        uuid : String
+    ) returns {
+        success : Boolean;
+        message : String;
+    };  
 }

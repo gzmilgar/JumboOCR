@@ -70,65 +70,115 @@ if (uuid) {
     // ============================================================
 this.on('READ', 'OCRItems', async (req) => {
     try {
-        console.log('OCRItems READ called');
-        var headerId = extractKeyFromWhere(req.query?.SELECT?.where, 'HeaderId');
+        var headerId = null;
+        if (req.params && req.params[0]) {
+            headerId = typeof req.params[0] === 'object'
+                ? req.params[0].HeaderId || req.params[0].Uuid
+                : req.params[0];
+        }
+        if (!headerId) headerId = extractKeyFromWhere(req.query?.SELECT?.where, 'HeaderId');
+        if (!headerId) return [];
 
-        if (!headerId) {
-            var where = req.query && req.query.SELECT && req.query.SELECT.where;
-            if (Array.isArray(where)) {
-                for (var i = 0; i + 2 < where.length; i++) {
-                    var a = where[i], b = where[i + 2];
-                    if (a && a.ref && a.ref[0] === 'HeaderId' && b && b.val !== undefined) {
-                        headerId = b.val; break;
-                    }
-                }
-            }
-        }
-        if (!headerId && req.params && req.params[0] && typeof req.params[0] === 'object') {
-            headerId = req.params[0].HeaderId || req.params[0].Uuid || null;
-        }
-        if (!headerId) {
-            console.log('OCRItems READ: HeaderId bulunamadı');
-            return [];
-        }
-        console.log('OCRItems READ: headerId=' + headerId);
-        var logEntry = await s4GetPOLog(headerId);
-        var items = logEntry.items || [];
-        console.log('OCRItems READ: S4 count=' + items.length);
-        return items;
+        var url = OCR_BASE + "OCRLogHead(" + headerId + ")?$expand=_Items";
+        console.log('OCRItems READ: URL=' + url);
+
+        var response = await executeHttpRequest(
+            { destinationName: 'QS4_HTTPS' },
+            { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+        );
+
+        var rawItems = response.data?._Items || [];
+        console.log('OCRItems READ: count=' + rawItems.length);
+
+        return rawItems.map(function(item) {
+            return {
+                HeaderId:       item.HeaderId      || headerId,
+                ItemNumber:     item.ItemNumber     || '',
+                Barcode:        item.Barcode        || '',
+                Description:    item.Description    || '',
+                MaterialNumber: item.MaterialNumber || '',
+                Unit:           item.Unit           || 'EA',
+                Quantity:       parseFloat(item.Quantity)  || 0,
+                UnitPrice:      parseFloat(item.UnitPrice) || 0,
+                Discount:       parseFloat(item.Discount)  || 0
+            };
+        });
+
     } catch (e) {
         console.error('OCRItems READ error: ' + e.message);
         return [];
     }
 });
-
-
     // UPDATE - super.init() ÖNCE
-    this.on('UPDATE', 'OCRLogs', async (req) => {
-        const uuid = req.params?.[0]?.Uuid;
-        const d = req.data;
-        try {
-            await s4Patch("OCRLogHead('" + uuid + "')", {
-                PurchaseOrder: d.PurchaseOrder, DeliveryDate: d.DeliveryDate,
-                DocumentDate: d.DocumentDate, ReceiverId: d.ReceiverId,
-                DeliveryAdress: d.DeliveryAdress, VendorAdress: d.VendorAdress,
-                UpdatedAt: new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'')
-            });
-        } catch(e) { console.error('UPDATE OCRLogs error:', e.message); }
-        return req.data;
-    });
+this.on('UPDATE', 'OCRLogs', async (req) => {
+    const uuid = req.params?.[0]?.Uuid;
+    const d = req.data;
+    try {
+        await s4Patch("OCRLogHead(" + uuid + ")", {
+            PurchaseOrder:    d.PurchaseOrder    || '',
+            DeliveryDate:     d.DeliveryDate     || null,
+            DocumentDate:     d.DocumentDate     || null,
+            ReceiverId:       d.ReceiverId       || '',
+            CurrencyCode:     d.CurrencyCode     || '',
+            NetAmount:        d.NetAmount        || 0,
+            GrossAmount:      d.GrossAmount      || 0,
+            TotalVat:         d.TotalVat         || '',
+            Discount:         d.Discount         || 0,
+            DeliveryAdress:   d.DeliveryAdress   || '',
+            VendorAdress:     d.VendorAdress     || '',
+            Status:           d.Status           || '',
+            SalesOrderNumber: d.SalesOrderNumber || '',
+            ErrorMessage:     d.ErrorMessage     || '',
+            MissingBarcodes:  d.MissingBarcodes  || ''
+        });
 
-    this.on('UPDATE', 'OCRItems', async (req) => {
-        const hId = req.params?.[0]?.HeaderId;
-        const iNo = req.params?.[0]?.ItemNumber;
-        const d = req.data;
-        try {
-            await s4Patch("OCRLogItem(HeaderId='" + hId + "',ItemNumber='" + iNo + "')", {
-                Barcode: d.Barcode, Quantity: d.Quantity, UnitPrice: d.UnitPrice
-            });
-        } catch(e) { console.error('UPDATE OCRItems error:', e.message); }
-        return req.data;
-    });
+        return {
+            Uuid:             uuid,
+            ProcessName:      d.ProcessName      || '',
+            PdfName:          d.PdfName          || '',
+            MailSubject:      d.MailSubject       || '',
+            PurchaseOrder:    d.PurchaseOrder     || '',
+            DeliveryDate:     d.DeliveryDate      || '',
+            DocumentDate:     d.DocumentDate      || '',
+            ReceiverId:       d.ReceiverId        || '',
+            CurrencyCode:     d.CurrencyCode      || '',
+            NetAmount:        d.NetAmount         || 0,
+            GrossAmount:      d.GrossAmount       || 0,
+            TotalVat:         d.TotalVat          || '',
+            Discount:         d.Discount          || 0,
+            DeliveryAdress:   d.DeliveryAdress    || '',
+            VendorAdress:     d.VendorAdress      || '',
+            Status:           d.Status            || '',
+            SalesOrderNumber: d.SalesOrderNumber  || '',
+            ErrorMessage:     d.ErrorMessage      || '',
+            ItemCount:        d.ItemCount         || 0,
+            MissingBarcodes:  d.MissingBarcodes   || '',
+            CreatedAt:        d.CreatedAt         || '',
+            UpdatedAt:        d.UpdatedAt         || ''
+        };
+
+    } catch (e) {
+        console.error('UPDATE OCRLogs error: ' + e.message);
+        req.error(500, e.message);
+    }
+});
+
+this.on('UPDATE', 'OCRItems', async (req) => {
+    const hId = req.params?.[0]?.HeaderId;
+    const iNo = req.params?.[0]?.ItemNumber;
+    const d = req.data;
+    try {
+        var sapUuid = toSapUuid(hId);
+        await s4Patch("OCRLogItem(HeaderId=guid'" + sapUuid + "',ItemNumber='" + iNo + "')", {
+            Barcode:   d.Barcode,
+            Quantity:  d.Quantity,
+            UnitPrice: d.UnitPrice
+        });
+    } catch(e) {
+        console.error('UPDATE OCRItems error:', e.message);
+    }
+    return req.data;
+});
 
     // triggerLog - super.init() ÖNCE
     this.on('triggerLog', async (req) => {
@@ -495,38 +545,38 @@ this.on('READ', 'OCRItems', async (req) => {
     // ============================================================
     // 6) updatePOLogData
     // ============================================================
-    this.on('updatePOLogData', async (req) => {
-        try {
-            var uuid = req.data.uuid;
-            var hdr = JSON.parse(req.data.headerData || '{}');
-            var items = JSON.parse(req.data.itemsData || '[]');
+this.on('updatePOLogData', async (req) => {
+    try {
+        var uuid  = req.data.uuid;
+        var hdr   = JSON.parse(req.data.headerData || '{}');
+        var items = JSON.parse(req.data.itemsData  || '[]');
 
-            await s4Patch("OCRLogHead('" + uuid + "')", {
-                PurchaseOrder:  hdr.purchaseOrder || '',
-                DeliveryDate:   hdr.deliveryDate || null,
-                DocumentDate:   hdr.documentDate || null,
-                ReceiverId:     hdr.receiverId || '',
-                DeliveryAdress: hdr.deliveryAdress || '',
-                VendorAdress:   hdr.vendorAdress || '',
-                UpdatedAt:      new Date().toISOString().slice(0, 19).replace('T', '').replace(/[-:]/g, '')
+        await s4Patch("OCRLogHead(" + uuid + ")", {
+            PurchaseOrder:  hdr.purchaseOrder  || '',
+            DeliveryDate:   hdr.deliveryDate   || null,
+            DocumentDate:   hdr.documentDate   || null,
+            ReceiverId:     hdr.receiverId     || '',
+            DeliveryAdress: hdr.deliveryAdress || '',
+            VendorAdress:   hdr.vendorAdress   || ''
+        });
+
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            await s4Patch(
+                "OCRLogItem(HeaderId=" + uuid + ",ItemNumber='" + item.itemNumber + "')", {
+                Barcode:   item.barcode            || '',
+                Quantity:  parseFloat(item.quantity)  || 0,
+                UnitPrice: parseFloat(item.unitPrice) || 0
             });
-
-            for (var i = 0; i < items.length; i++) {
-                var item = items[i];
-                await s4Patch(
-                    "OCRLogItem(HeaderId='" + uuid + "',ItemNumber='" + item.itemNumber + "')", {
-                    Barcode:   item.barcode || '',
-                    Quantity:  parseFloat(item.quantity) || 0,
-                    UnitPrice: parseFloat(item.unitPrice) || 0
-                });
-            }
-            return { success: true, message: 'Updated successfully' };
-        } catch (error) {
-            console.error('updatePOLogData Error: ' + error.message);
-            return { success: false, message: error.message };
         }
-    });
 
+        return { success: true, message: 'Updated successfully' };
+
+    } catch (e) {
+        console.error('updatePOLogData error: ' + e.message);
+        return { success: false, message: e.message };
+    }
+});
     // ============================================================
     // INTERNAL: _processSalesOrder
     // ============================================================
@@ -670,59 +720,77 @@ this.on('READ', 'OCRItems', async (req) => {
     // ============================================================
     // INTERNAL: autoUpdatePOLog → PATCH to S/4HANA
     // ============================================================
-    async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, itemCount, missingBarcodes) {
-        if (!uuid) return;
-        try {
-            var now = new Date().toISOString().slice(0, 19).replace('T', '').replace(/[-:]/g, '');
-            await s4Patch("OCRLogHead('" + uuid + "')", {
-                Status:           status,
-                SalesOrderNumber: salesOrderNumber || '',
-                ErrorMessage:     errorMessage || '',
-                ItemCount:        itemCount || 0,
-                MissingBarcodes:  missingBarcodes || '',
-                UpdatedAt:        now
-            });
-            console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status);
-        } catch (e) {
-            console.error('autoUpdatePOLog error: ' + e.message);
-        }
+async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, itemCount, missingBarcodes) {
+    if (!uuid) return;
+    try {
+        var now = new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'');
+        await s4Patch("OCRLogHead(" + uuid + ")", {
+            Status:           status           || '',
+            SalesOrderNumber: salesOrderNumber || '',
+            ErrorMessage:     errorMessage     || '',
+            ItemCount:        itemCount        || 0,
+            MissingBarcodes:  missingBarcodes  || '',
+            UpdatedAt:        now
+        });
+        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status);
+    } catch (e) {
+        console.error('autoUpdatePOLog error: ' + e.message);
     }
+}
 
     // ============================================================
     // INTERNAL: s4GetPOLog
     // ============================================================
-    async function s4GetPOLog(uuid) {
-        var url = OCR_BASE + "OCRLogHead('" + uuid + "')?$expand=_Items";
-        var response = await executeHttpRequest(
-            { destinationName: 'QS4_HTTPS' },
-            { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
-        );
-        var r = response.data;
-        return {
-            uuid:             r.Uuid || '',
-            processName:      r.ProcessName || '',
-            pdfName:          r.PdfName || '',
-            purchaseOrder:    r.PurchaseOrder || '',
-            deliveryDate:     r.DeliveryDate || '',
-            documentDate:     r.DocumentDate || '',
-            receiverId:       r.ReceiverId || '',
-            currencyCode:     r.CurrencyCode || '',
-            netAmount:        String(r.NetAmount || ''),
-            grossAmount:      String(r.GrossAmount || ''),
-            totalVat:         String(r.TotalVat || ''),
-            discount:         String(r.Discount || ''),
-            deliveryAdress:   r.DeliveryAdress || '',
-            vendorAdress:     r.VendorAdress || '',
-            taxId:            r.TaxId || '',
-            status:           r.Status || '',
-            salesOrderNumber: r.SalesOrderNumber || '',
-            errorMessage:     r.ErrorMessage || '',
-            itemCount:        r.ItemCount || 0,
-            missingBarcodes:  r.MissingBarcodes || '',
-            createdAt:        r.CreatedAt || '',
-            items:            r._Items || []
-        };
-    }
+async function s4GetPOLog(uuid) {
+    var url = OCR_BASE + "OCRLogHead(" + uuid + ")?$expand=_Items";
+    console.log('s4GetPOLog: URL=' + url);
+
+    var response = await executeHttpRequest(
+        { destinationName: 'QS4_HTTPS' },
+        { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+    );
+    var r = response.data;
+
+    console.log('s4GetPOLog: _Items count=' + (r._Items ? r._Items.length : 0));
+
+    return {
+        uuid:             r.Uuid            || '',
+        processName:      r.ProcessName     || '',
+        pdfName:          r.PdfName         || '',
+        mailSubject:      r.MailSubject      || '',
+        purchaseOrder:    r.PurchaseOrder    || '',
+        deliveryDate:     r.DeliveryDate     || '',
+        documentDate:     r.DocumentDate     || '',
+        receiverId:       r.ReceiverId       || '',
+        currencyCode:     r.CurrencyCode     || '',
+        netAmount:        String(r.NetAmount  || ''),
+        grossAmount:      String(r.GrossAmount|| ''),
+        totalVat:         String(r.TotalVat   || ''),
+        discount:         String(r.Discount   || ''),
+        deliveryAdress:   r.DeliveryAdress   || '',
+        vendorAdress:     r.VendorAdress     || '',
+        status:           r.Status           || '',
+        salesOrderNumber: r.SalesOrderNumber || '',
+        errorMessage:     r.ErrorMessage     || '',
+        itemCount:        r.ItemCount        || 0,
+        missingBarcodes:  r.MissingBarcodes  || '',
+        createdAt:        r.CreatedAt        || '',
+        updatedAt:        r.UpdatedAt        || '',
+        items: (r._Items || []).map(function(item) {
+            return {
+                HeaderId:       item.HeaderId      || uuid,
+                ItemNumber:     item.ItemNumber     || '',
+                Barcode:        item.Barcode        || '',
+                Description:    item.Description    || '',
+                MaterialNumber: item.MaterialNumber || '',
+                Unit:           item.Unit           || 'EA',
+                Quantity:       parseFloat(item.Quantity)  || 0,
+                UnitPrice:      parseFloat(item.UnitPrice) || 0,
+                Discount:       parseFloat(item.Discount)  || 0
+            };
+        })
+    };
+}
 
     // ============================================================
     // INTERNAL: S/4HANA HTTP Helpers

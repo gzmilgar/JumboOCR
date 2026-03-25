@@ -9,6 +9,12 @@ annotate service.OCRLogs with @(
 // List Report - Table columns
 // ============================================================
 annotate service.OCRLogs with @(
+ UI.SelectionFields: [
+        PurchaseOrder,
+        SalesOrderNumber,
+        ProcessName,
+        DocumentDate
+    ],    
     UI.LineItem: [
         { $Type: 'UI.DataField', Value: ProcessName,      Label: 'Process'      },
         { $Type: 'UI.DataField', Value: PdfName,          Label: 'PDF'          },
