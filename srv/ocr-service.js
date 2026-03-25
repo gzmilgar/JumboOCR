@@ -61,6 +61,137 @@ module.exports = class extends cds.ApplicationService { async init() {
 
     await super.init(); 
 
+    // OCRLogs - tekil kayıt (Object Page) veya liste
+    this.on('READ', 'OCRLogs', async (req) => {
+        try {
+            const uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
+            if (uuid) {
+                // Object Page - tek kayıt
+                const r = await s4GetPOLog(uuid);
+                return [{
+                    Uuid: r.uuid || '', ProcessName: r.processName || '',
+                    PdfName: r.pdfName || '', MailSubject: '', 
+                    PurchaseOrder: r.purchaseOrder || '', DeliveryDate: r.deliveryDate || '',
+                    DocumentDate: r.documentDate || '', ReceiverId: r.receiverId || '',
+                    CurrencyCode: r.currencyCode || '', NetAmount: parseFloat(r.netAmount) || 0,
+                    GrossAmount: parseFloat(r.grossAmount) || 0, TotalVat: r.totalVat || '',
+                    Discount: parseFloat(r.discount) || 0, DeliveryAdress: r.deliveryAdress || '',
+                    VendorAdress: r.vendorAdress || '', Status: r.status || '',
+                    SalesOrderNumber: r.salesOrderNumber || '', ErrorMessage: r.errorMessage || '',
+                    MissingBarcodes: r.missingBarcodes || '', ItemCount: r.itemCount || 0,
+                    CreatedAt: r.createdAt || '', UpdatedAt: ''
+                }];
+            } else {
+                // Liste
+                const response = await executeHttpRequest(
+                    { destinationName: 'QS4_HTTPS' },
+                    { method: 'GET', url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
+                      headers: { 'Accept': 'application/json' }, timeout: 30000 }
+                );
+                return (response.data?.value || []).map(r => ({
+                    Uuid: r.Uuid || '', ProcessName: r.ProcessName || '',
+                    PdfName: r.PdfName || '', MailSubject: r.MailSubject || '',
+                    PurchaseOrder: r.PurchaseOrder || '', DeliveryDate: r.DeliveryDate || '',
+                    DocumentDate: r.DocumentDate || '', ReceiverId: r.ReceiverId || '',
+                    CurrencyCode: r.CurrencyCode || '', NetAmount: r.NetAmount || 0,
+                    GrossAmount: r.GrossAmount || 0, TotalVat: r.TotalVat || '',
+                    Discount: r.Discount || 0, DeliveryAdress: r.DeliveryAdress || '',
+                    VendorAdress: r.VendorAdress || '', Status: r.Status || '',
+                    SalesOrderNumber: r.SalesOrderNumber || '', ErrorMessage: r.ErrorMessage || '',
+                    MissingBarcodes: r.MissingBarcodes || '', ItemCount: r.ItemCount || 0,
+                    CreatedAt: r.CreatedAt || '', UpdatedAt: r.UpdatedAt || ''
+                }));
+            }
+        } catch (e) {
+            console.error('OCRLogs READ error:', e.message);
+            return [];
+        }
+    });
+
+    // OCRItems - kalemler
+    this.on('READ', 'OCRItems', async (req) => {
+        try {
+            const headerUuid = extractKeyFromWhere(req.query?.SELECT?.where, 'HeaderId');
+            if (!headerUuid) return [];
+            const response = await executeHttpRequest(
+                { destinationName: 'QS4_HTTPS' },
+                { method: 'GET', url: OCR_BASE + "OCRLogHead('" + headerUuid + "')/_Items",
+                  headers: { 'Accept': 'application/json' }, timeout: 30000 }
+            );
+            return (response.data?.value || []).map(item => ({
+                HeaderId: headerUuid,
+                ItemNumber: item.ItemNumber || '', Barcode: item.Barcode || '',
+                Description: item.Description || '', MaterialNumber: item.MaterialNumber || '',
+                Unit: item.Unit || '', Quantity: item.Quantity || 0,
+                UnitPrice: item.UnitPrice || 0, Discount: item.Discount || 0
+            }));
+        } catch (e) {
+            console.error('OCRItems READ error:', e.message);
+            return [];
+        }
+    });
+
+    // Bound retrigger action (Object Page butonu)
+    this.on('retrigger', 'OCRLogs', async (req) => {
+        const uuid = req.params?.[0]?.Uuid || req.params?.[0];
+        try {
+            var logEntry = await s4GetPOLog(uuid);
+            if (!logEntry) return { success: false, message: 'Not found: ' + uuid, salesOrder: '' };
+            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
+            var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
+            var minData = {
+                purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
+                documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
+                deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress,
+                taxId: logEntry.taxId,
+                lineItems: logEntry.items.map(function(i) {
+                    return { barcode: i.Barcode||'', quantity: String(i.Quantity||''),
+                             unitPrice: String(i.UnitPrice||''), itemNumber: i.ItemNumber||'',
+                             description: i.Description||'', materialNumber: i.MaterialNumber||'' };
+                })
+            };
+            var data = wrapForBuildPayload(minData);
+            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+            var result = await _processSalesOrder(data, stsa, logEntry.processName);
+            await autoUpdatePOLog(uuid, result.success ? 'SUCCESS' : 'FAILED',
+                result.salesOrderNumber||'', result.success ? '' : (result.message||''),
+                result.itemCount||0, result.missingBarcodes||'');
+            return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
+        } catch (e) {
+            console.error('retrigger error:', e.message);
+            try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch(e2){}
+            return { success: false, message: e.message, salesOrder: '' };
+        }
+    });
+
+    // UPDATE - header düzenleme
+    this.on('UPDATE', 'OCRLogs', async (req) => {
+        const uuid = req.params?.[0]?.Uuid;
+        const d = req.data;
+        try {
+            await s4Patch("OCRLogHead('" + uuid + "')", {
+                PurchaseOrder: d.PurchaseOrder, DeliveryDate: d.DeliveryDate,
+                DocumentDate: d.DocumentDate, ReceiverId: d.ReceiverId,
+                DeliveryAdress: d.DeliveryAdress, VendorAdress: d.VendorAdress,
+                UpdatedAt: new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'')
+            });
+        } catch(e) { console.error('UPDATE OCRLogs error:', e.message); }
+        return req.data;
+    });
+
+    // UPDATE - kalem düzenleme
+    this.on('UPDATE', 'OCRItems', async (req) => {
+        const hId = req.params?.[0]?.HeaderId;
+        const iNo = req.params?.[0]?.ItemNumber;
+        const d = req.data;
+        try {
+            await s4Patch("OCRLogItem(HeaderId='" + hId + "',ItemNumber='" + iNo + "')", {
+                Barcode: d.Barcode, Quantity: d.Quantity, UnitPrice: d.UnitPrice
+            });
+        } catch(e) { console.error('UPDATE OCRItems error:', e.message); }
+        return req.data;
+    });
+
     
     // ============================================================
     // 1) lookupShipToAndSalesArea
@@ -1409,4 +1540,15 @@ module.exports = class extends cds.ApplicationService { async init() {
         return result;
     }
 
+       function extractKeyFromWhere(where, fieldName) {
+        if (!where || !Array.isArray(where)) return null;
+        const find = (arr) => {
+            for (let i = 0; i < arr.length; i++) {
+                if (arr[i]?.ref?.[0] === fieldName && arr[i+2]?.val) return arr[i+2].val;
+                if (arr[i]?.xpr) { const v = find(arr[i].xpr); if (v) return v; }
+            }
+            return null;
+        };
+        return find(where);
+    }
 }}

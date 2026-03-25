@@ -79,23 +79,50 @@ service OCRService {
         message : String;
     };
 
- @readonly
- @cds.persistence.skip: true
-    entity OCRLogs {
-        key Uuid          : String(36);
-            ProcessName   : String;
-            PdfName       : String;
-            Status        : String;
-            PurchaseOrder : String;
-            SalesOrderNumber : String;
-            ErrorMessage  : String;
-            CreatedAt     : String;
-    }
-
     action triggerLog(uuid : String) returns {
         success    : Boolean;
         message    : String;
         salesOrder : String;
     };
 
+        @cds.persistence.skip: true
+    entity OCRLogs {
+        key Uuid             : String(36);
+        ProcessName          : String;
+        PdfName              : String;
+        MailSubject          : String;
+        PurchaseOrder        : String;
+        DeliveryDate         : String;
+        DocumentDate         : String;
+        ReceiverId           : String;
+        CurrencyCode         : String;
+        NetAmount            : Decimal;
+        GrossAmount          : Decimal;
+        TotalVat             : String;
+        Discount             : Decimal;
+        DeliveryAdress       : String;
+        VendorAdress         : String;
+        Status               : String;
+        SalesOrderNumber     : String;
+        ErrorMessage         : String;
+        MissingBarcodes      : String;
+        ItemCount            : Integer;
+        CreatedAt            : String;
+        UpdatedAt            : String;
+        Items                : Composition of many OCRItems on Items.HeaderId = $self.Uuid;
+    }
+
+
+    @cds.persistence.skip: true
+    entity OCRItems {
+        key HeaderId         : String(36);
+        key ItemNumber       : String(6);
+        Barcode              : String;
+        Description          : String;
+        MaterialNumber       : String;
+        Unit                 : String;
+        Quantity             : Decimal;
+        UnitPrice            : Decimal;
+        Discount             : Decimal;
+    }
 }
