@@ -6,7 +6,8 @@
 		"i18n": {
 			"bundleUrl": "i18n/i18n.properties",
 			"supportedLocales": [
-				""
+				"",
+				"en"
 			]
 		},
 		"applicationVersion": {
@@ -67,7 +68,8 @@
 				"settings": {
 					"bundleName": "com.jumbo.ocr.ocrtrigger.i18n.i18n",
 					"supportedLocales": [
-						""
+						"",
+						"en"
 					]
 				}
 			},
@@ -85,7 +87,8 @@
 				"uri": "i18n/i18n.properties",
 				"settings": {
 					"supportedLocales": [
-						""
+						"",
+						"en"
 					]
 				}
 			}
