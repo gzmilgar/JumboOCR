@@ -159,19 +159,7 @@ annotate service.OCRLogs with @(
             Label  : 'Trigger',
             Action : 'OCRService.triggerLog',
             Inline : true
-        },
-        {
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Edit',
-            Action : 'OCRService.EntityContainer/updatePOLogData',
-            Inline : true
-        }      ,
-        {
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Save',
-            Action : 'OCRService.EntityContainer/updatePOLogData',
-            Inline : true
-        }              
+        }
     ]
 );
 
@@ -183,7 +171,7 @@ annotate service.OCRLogs with @(
         $Type          : 'UI.HeaderInfoType',
         TypeName       : 'OCR Log',
         TypeNamePlural : 'OCR Logs',
-        Title          : { Value: Uuid },
+        Title          : { Value: PurchaseOrder },
         Description    : { Value: ProcessName }
     }
 );

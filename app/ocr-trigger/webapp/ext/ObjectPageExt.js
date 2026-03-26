@@ -103,37 +103,45 @@ sap.ui.define([
                         type: "Emphasized",
                         press: function () {
                             var editData = oEditModel.getData();
+                            var sServiceUrl = oModel.getServiceUrl();
 
-                            var oActionBinding = oModel.bindContext("/updatePOLogData(...)");
-                            oActionBinding.setParameter("uuid", oData.Uuid);
-                            oActionBinding.setParameter("headerData", JSON.stringify({
-                                netAmount: editData.netAmount,
-                                grossAmount: editData.grossAmount,
-                                currencyCode: editData.currencyCode,
-                                deliveryAdress: editData.deliveryAdress,
-                                vendorAdress: editData.vendorAdress
-                            }));
-                            oActionBinding.setParameter("itemsData", JSON.stringify(
-                                editData.items.map(function (item) {
-                                    return {
-                                        itemNumber: item.itemNumber,
-                                        unitPrice: item.unitPrice,
-                                        discount: item.discount
-                                    };
+                            fetch(sServiceUrl + "updatePOLogData", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    uuid: oData.Uuid,
+                                    headerData: JSON.stringify({
+                                        netAmount: editData.netAmount,
+                                        grossAmount: editData.grossAmount,
+                                        currencyCode: editData.currencyCode,
+                                        deliveryAdress: editData.deliveryAdress,
+                                        vendorAdress: editData.vendorAdress
+                                    }),
+                                    itemsData: JSON.stringify(
+                                        editData.items.map(function (item) {
+                                            return {
+                                                itemNumber: item.itemNumber,
+                                                unitPrice: item.unitPrice,
+                                                discount: item.discount
+                                            };
+                                        })
+                                    )
                                 })
-                            ));
-
-                            oActionBinding.execute().then(function () {
-                                var oResult = oActionBinding.getBoundContext().getObject();
-                                if (oResult.success) {
+                            })
+                            .then(function (response) {
+                                return response.json();
+                            })
+                            .then(function (result) {
+                                if (result.success) {
                                     MessageToast.show("Operation Successful");
                                     oBindingContext.refresh();
                                     oDialog.close();
                                 } else {
-                                    MessageToast.show("Save failed: " + (oResult.message || "Unknown error"));
+                                    MessageToast.show("Save failed: " + (result.message || "Unknown error"));
                                 }
-                            }).catch(function (oError) {
-                                MessageToast.show("Save failed: " + oError.message);
+                            })
+                            .catch(function (error) {
+                                MessageToast.show("Save failed: " + error.message);
                             });
                         }
                     }),
