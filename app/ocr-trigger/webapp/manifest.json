@@ -120,14 +120,23 @@
             }
           }
         },
-        "OCRLogsObjectPage": {
+"OCRLogsObjectPage": {
           "type": "Component",
           "id": "OCRLogsObjectPage",
           "name": "sap.fe.templates.ObjectPage",
           "options": {
             "settings": {
+              "contextPath": "/OCRLogs",
               "editableHeaderContent": false,
-              "contextPath": "/OCRLogs"
+              "navigation": {},
+              "controlConfiguration": {
+                "Items/@com.sap.vocabularies.UI.v1.LineItem": {
+                  "tableSettings": {
+                    "type": "ResponsiveTable",
+                    "selectionMode": "Single"
+                  }
+                }
+              }
             }
           }
         }

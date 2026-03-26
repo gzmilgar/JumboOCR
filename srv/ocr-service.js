@@ -111,55 +111,84 @@ this.on('READ', 'OCRItems', async (req) => {
 });
     // UPDATE - super.init() ÖNCE
 this.on('UPDATE', 'OCRLogs', async (req) => {
-    const uuid = req.params?.[0]?.Uuid;
+    // params'tan uuid al - tüm olası yolları dene
+    let uuid = req.params?.[0]?.Uuid 
+            || req.params?.[0] 
+            || req.data?.Uuid;
+    
+    console.log('UPDATE OCRLogs: uuid=' + uuid);
+    console.log('UPDATE OCRLogs: params=' + JSON.stringify(req.params));
+    console.log('UPDATE OCRLogs: data=' + JSON.stringify(req.data));
+    
+    if (!uuid) {
+        req.error(400, 'UUID is required for update');
+        return;
+    }
+    
     const d = req.data;
+    
     try {
-        await s4Patch("OCRLogHead(" + uuid + ")", {
-            PurchaseOrder:    d.PurchaseOrder    || '',
-            DeliveryDate:     d.DeliveryDate     || null,
-            DocumentDate:     d.DocumentDate     || null,
-            ReceiverId:       d.ReceiverId       || '',
-            CurrencyCode:     d.CurrencyCode     || '',
-            NetAmount:        d.NetAmount        || 0,
-            GrossAmount:      d.GrossAmount      || 0,
-            TotalVat:         d.TotalVat         || '',
-            Discount:         d.Discount         || 0,
-            DeliveryAdress:   d.DeliveryAdress   || '',
-            VendorAdress:     d.VendorAdress     || '',
-            Status:           d.Status           || '',
-            SalesOrderNumber: d.SalesOrderNumber || '',
-            ErrorMessage:     d.ErrorMessage     || '',
-            MissingBarcodes:  d.MissingBarcodes  || ''
-        });
+        // Sadece gelen field'ları patch body'e ekle
+        const patchBody = {};
+        
+        if (d.PurchaseOrder  !== undefined) patchBody.PurchaseOrder  = d.PurchaseOrder  || '';
+        if (d.DeliveryDate   !== undefined) patchBody.DeliveryDate   = d.DeliveryDate   || null;
+        if (d.DocumentDate   !== undefined) patchBody.DocumentDate   = d.DocumentDate   || null;
+        if (d.ReceiverId     !== undefined) patchBody.ReceiverId     = d.ReceiverId     || '';
+        if (d.CurrencyCode   !== undefined) patchBody.CurrencyCode   = d.CurrencyCode   || '';
+        if (d.NetAmount      !== undefined) patchBody.NetAmount      = parseFloat(d.NetAmount)   || 0;
+        if (d.GrossAmount    !== undefined) patchBody.GrossAmount    = parseFloat(d.GrossAmount) || 0;
+        if (d.TotalVat       !== undefined) patchBody.TotalVat       = d.TotalVat       || '';
+        if (d.Discount       !== undefined) patchBody.Discount       = parseFloat(d.Discount)    || 0;
+        if (d.DeliveryAdress !== undefined) patchBody.DeliveryAdress = d.DeliveryAdress || '';
+        if (d.VendorAdress   !== undefined) patchBody.VendorAdress   = d.VendorAdress   || '';
+        if (d.Status         !== undefined) patchBody.Status         = d.Status         || '';
+        if (d.SalesOrderNumber !== undefined) patchBody.SalesOrderNumber = d.SalesOrderNumber || '';
+        if (d.ErrorMessage   !== undefined) patchBody.ErrorMessage   = d.ErrorMessage   || '';
+        if (d.MissingBarcodes !== undefined) patchBody.MissingBarcodes = d.MissingBarcodes || '';
+
+        console.log('UPDATE OCRLogs: patchBody=' + JSON.stringify(patchBody));
+
+        // Patch body boş değilse S/4HANA'ya gönder
+        if (Object.keys(patchBody).length > 0) {
+            await s4Patch('OCRLogHead(' + uuid + ')', patchBody);
+            console.log('UPDATE OCRLogs: S/4HANA PATCH success, uuid=' + uuid);
+        } else {
+            console.log('UPDATE OCRLogs: patchBody empty, skipping S/4HANA call');
+        }
+
+        // Güncel veriyi S/4HANA'dan çek ve döndür
+        const updated = await s4GetPOLog(uuid);
 
         return {
-            Uuid:             uuid,
-            ProcessName:      d.ProcessName      || '',
-            PdfName:          d.PdfName          || '',
-            MailSubject:      d.MailSubject       || '',
-            PurchaseOrder:    d.PurchaseOrder     || '',
-            DeliveryDate:     d.DeliveryDate      || '',
-            DocumentDate:     d.DocumentDate      || '',
-            ReceiverId:       d.ReceiverId        || '',
-            CurrencyCode:     d.CurrencyCode      || '',
-            NetAmount:        d.NetAmount         || 0,
-            GrossAmount:      d.GrossAmount       || 0,
-            TotalVat:         d.TotalVat          || '',
-            Discount:         d.Discount          || 0,
-            DeliveryAdress:   d.DeliveryAdress    || '',
-            VendorAdress:     d.VendorAdress      || '',
-            Status:           d.Status            || '',
-            SalesOrderNumber: d.SalesOrderNumber  || '',
-            ErrorMessage:     d.ErrorMessage      || '',
-            ItemCount:        d.ItemCount         || 0,
-            MissingBarcodes:  d.MissingBarcodes   || '',
-            CreatedAt:        d.CreatedAt         || '',
-            UpdatedAt:        d.UpdatedAt         || ''
+            Uuid:             updated.uuid             || uuid,
+            ProcessName:      updated.processName      || d.ProcessName      || '',
+            PdfName:          updated.pdfName          || d.PdfName          || '',
+            MailSubject:      updated.mailSubject      || d.MailSubject      || '',
+            PurchaseOrder:    updated.purchaseOrder    || d.PurchaseOrder    || '',
+            DeliveryDate:     updated.deliveryDate     || d.DeliveryDate     || '',
+            DocumentDate:     updated.documentDate     || d.DocumentDate     || '',
+            ReceiverId:       updated.receiverId       || d.ReceiverId       || '',
+            CurrencyCode:     updated.currencyCode     || d.CurrencyCode     || '',
+            NetAmount:        parseFloat(updated.netAmount)   || d.NetAmount   || 0,
+            GrossAmount:      parseFloat(updated.grossAmount) || d.GrossAmount || 0,
+            TotalVat:         updated.totalVat         || d.TotalVat         || '',
+            Discount:         parseFloat(updated.discount)    || d.Discount   || 0,
+            DeliveryAdress:   updated.deliveryAdress   || d.DeliveryAdress   || '',
+            VendorAdress:     updated.vendorAdress     || d.VendorAdress     || '',
+            Status:           updated.status           || d.Status           || '',
+            SalesOrderNumber: updated.salesOrderNumber || d.SalesOrderNumber || '',
+            ErrorMessage:     updated.errorMessage     || d.ErrorMessage     || '',
+            MissingBarcodes:  updated.missingBarcodes  || d.MissingBarcodes  || '',
+            ItemCount:        updated.itemCount        || d.ItemCount        || 0,
+            CreatedAt:        updated.createdAt        || d.CreatedAt        || '',
+            UpdatedAt:        updated.updatedAt        || d.UpdatedAt        || ''
         };
 
     } catch (e) {
         console.error('UPDATE OCRLogs error: ' + e.message);
-        req.error(500, e.message);
+        console.error('UPDATE OCRLogs stack: ' + e.stack);
+        req.error(500, 'Update failed: ' + e.message);
     }
 });
 

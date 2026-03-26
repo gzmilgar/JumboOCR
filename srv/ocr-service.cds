@@ -67,7 +67,7 @@ service OCRService {
         itemCount        : Integer;
         missingBarcodes  : String;
         createdAt        : String;
-        items            : String;
+        items            : String;        
     };
 
     action updatePOLogData(
@@ -102,6 +102,9 @@ service OCRService {
         Discount             : Decimal;
         DeliveryAdress       : String;
         VendorAdress         : String;
+        PaymentTerms         : String;   
+        TaxId                : String;   
+        VendorNo             : String;        
         Status               : String;
         SalesOrderNumber     : String;
         ErrorMessage         : String;
@@ -109,10 +112,9 @@ service OCRService {
         ItemCount            : Integer;
         CreatedAt            : String;
         UpdatedAt            : String;
-        Items                : Composition of many OCRItems on Items.HeaderId = $self.Uuid;
+        Items : Composition of many OCRItems 
+                on Items.HeaderId = $self.Uuid;
     }
-
-
     @cds.persistence.skip: true
     entity OCRItems {
         key HeaderId         : String(36);
@@ -125,7 +127,6 @@ service OCRService {
         UnitPrice            : Decimal;
         Discount             : Decimal;
     }
-
  
     // ==========================================
     // Actions
@@ -147,5 +148,15 @@ service OCRService {
     ) returns {
         success : Boolean;
         message : String;
-    };  
+    }; 
+
+action updateOCRLog(
+    uuid         : String,
+    headerData   : String,
+    itemsData    : String
+) returns {
+    success : Boolean;
+    message : String;
+};    
+
 }
