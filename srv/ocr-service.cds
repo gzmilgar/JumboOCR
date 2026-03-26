@@ -67,7 +67,7 @@ service OCRService {
         itemCount        : Integer;
         missingBarcodes  : String;
         createdAt        : String;
-        items            : String;        
+        items            : String;
     };
 
     action updatePOLogData(
@@ -85,52 +85,11 @@ service OCRService {
         salesOrder : String;
     };
 
-        @cds.persistence.skip: true
-    entity OCRLogs {
-        key Uuid             : String(36);
-        ProcessName          : String;
-        PdfName              : String;
-        MailSubject          : String;
-        PurchaseOrder        : String;
-        DeliveryDate         : String;
-        DocumentDate         : String;
-        ReceiverId           : String;
-        CurrencyCode         : String;
-        NetAmount            : Decimal;
-        GrossAmount          : Decimal;
-        TotalVat             : String;
-        Discount             : Decimal;
-        DeliveryAdress       : String;
-        VendorAdress         : String;
-        PaymentTerms         : String;   
-        TaxId                : String;   
-        VendorNo             : String;        
-        Status               : String;
-        SalesOrderNumber     : String;
-        ErrorMessage         : String;
-        MissingBarcodes      : String;
-        ItemCount            : Integer;
-        CreatedAt            : String;
-        UpdatedAt            : String;
-        Items : Composition of many OCRItems 
-                on Items.HeaderId = $self.Uuid;
-    }
-    @cds.persistence.skip: true
-    entity OCRItems {
-        key HeaderId         : String(36);
-        key ItemNumber       : String(6);
-        Barcode              : String;
-        Description          : String;
-        MaterialNumber       : String;
-        Unit                 : String;
-        Quantity             : Decimal;
-        UnitPrice            : Decimal;
-        Discount             : Decimal;
-    }
- 
-    // ==========================================
-    // Actions
-    // ==========================================
+    action deletePOLog(uuid : String) returns {
+        success : Boolean;
+        message : String;
+    };
+
     action triggerOCR(
         uuid        : String,
         pdfContent  : String,
@@ -142,21 +101,50 @@ service OCRService {
         uuid    : String;
     };
 
+    // ==========================================
+    // Entities
+    // ==========================================
+    @cds.persistence.skip: true
+    entity OCRLogs {
+        key Uuid             : String(36);
+            ProcessName      : String;
+            PdfName          : String;
+            MailSubject      : String;
+            PurchaseOrder    : String;
+            DeliveryDate     : String;
+            DocumentDate     : String;
+            ReceiverId       : String;
+            CurrencyCode     : String;
+            NetAmount        : Decimal;
+            GrossAmount      : Decimal;
+            TotalVat         : String;
+            Discount         : Decimal;
+            DeliveryAdress   : String;
+            VendorAdress     : String;
+            PaymentTerms     : String;
+            TaxId            : String;
+            VendorNo         : String;
+            Status           : String;
+            SalesOrderNumber : String;
+            ErrorMessage     : String;
+            MissingBarcodes  : String;
+            ItemCount        : Integer;
+            CreatedAt        : String;
+            UpdatedAt        : String;
+        Items : Composition of many OCRItems
+                on Items.HeaderId = $self.Uuid;
+    }
 
-    action deletePOLog(
-        uuid : String
-    ) returns {
-        success : Boolean;
-        message : String;
-    }; 
-
-action updateOCRLog(
-    uuid         : String,
-    headerData   : String,
-    itemsData    : String
-) returns {
-    success : Boolean;
-    message : String;
-};    
-
+    @cds.persistence.skip: true
+    entity OCRItems {
+        key HeaderId         : String(36);
+        key ItemNumber       : String(6);
+            Barcode          : String;
+            Description      : String;
+            MaterialNumber   : String;
+            Unit             : String;
+            Quantity         : Decimal;
+            UnitPrice        : Decimal;
+            Discount         : Decimal;
+    }
 }
