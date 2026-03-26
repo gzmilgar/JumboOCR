@@ -105,28 +105,39 @@ sap.ui.define([
                             var editData = oEditModel.getData();
                             var sServiceUrl = oModel.getServiceUrl();
 
-                            fetch(sServiceUrl + "updatePOLogData", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                    uuid: oData.Uuid,
-                                    headerData: JSON.stringify({
-                                        netAmount: editData.netAmount,
-                                        grossAmount: editData.grossAmount,
-                                        currencyCode: editData.currencyCode,
-                                        deliveryAdress: editData.deliveryAdress,
-                                        vendorAdress: editData.vendorAdress
-                                    }),
-                                    itemsData: JSON.stringify(
-                                        editData.items.map(function (item) {
-                                            return {
-                                                itemNumber: item.itemNumber,
-                                                unitPrice: item.unitPrice,
-                                                discount: item.discount
-                                            };
-                                        })
-                                    )
-                                })
+                            // First fetch CSRF token, then POST
+                            fetch(sServiceUrl, {
+                                method: "HEAD",
+                                headers: { "X-Csrf-Token": "Fetch" }
+                            })
+                            .then(function (tokenResponse) {
+                                var sCsrfToken = tokenResponse.headers.get("X-Csrf-Token");
+                                return fetch(sServiceUrl + "updatePOLogData", {
+                                    method: "POST",
+                                    headers: {
+                                        "Content-Type": "application/json",
+                                        "X-Csrf-Token": sCsrfToken
+                                    },
+                                    body: JSON.stringify({
+                                        uuid: oData.Uuid,
+                                        headerData: JSON.stringify({
+                                            netAmount: editData.netAmount,
+                                            grossAmount: editData.grossAmount,
+                                            currencyCode: editData.currencyCode,
+                                            deliveryAdress: editData.deliveryAdress,
+                                            vendorAdress: editData.vendorAdress
+                                        }),
+                                        itemsData: JSON.stringify(
+                                            editData.items.map(function (item) {
+                                                return {
+                                                    itemNumber: item.itemNumber,
+                                                    unitPrice: item.unitPrice,
+                                                    discount: item.discount
+                                                };
+                                            })
+                                        )
+                                    })
+                                });
                             })
                             .then(function (response) {
                                 return response.json();
