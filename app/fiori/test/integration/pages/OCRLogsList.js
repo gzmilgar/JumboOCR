@@ -1,0 +1,2 @@
+sap.ui.define(["sap/fe/test/ListReport"],function(t){"use strict";var o={actions:{},assertions:{}};return new t({appId:"com.jumbo.ocr.ocrtrigger",componentId:"OCRLogsList",contextPath:"/OCRLogs"},o)});
+//# sourceMappingURL=OCRLogsList.js.map

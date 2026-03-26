@@ -96,6 +96,15 @@
 		"resources": {
 			"css": []
 		},
+		"extends": {
+			"extensions": {
+				"sap.ui.controllerExtensions": {
+					"sap.fe.templates.ObjectPage.ObjectPageController": {
+						"controllerName": "com.jumbo.ocr.ocrtrigger.ext.OPControllerExtension"
+					}
+				}
+			}
+		},
 		"routing": {
 			"config": {},
 			"routes": [
@@ -152,6 +161,18 @@
 											"visible": true,
 											"enabled": true,
 											"text": "Edit"
+										}
+									}
+								},
+								"body": {
+									"sections": {
+										"editSection": {
+											"template": "com.jumbo.ocr.ocrtrigger.ext.EditSection",
+											"title": "Actions",
+											"position": {
+												"placement": "Before",
+												"anchor": "GeneralInfo"
+											}
 										}
 									}
 								}

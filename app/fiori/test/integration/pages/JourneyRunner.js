@@ -1,0 +1,2 @@
+sap.ui.define(["sap/fe/test/JourneyRunner","com/jumbo/ocr/ocrtrigger/test/integration/pages/OCRLogsList","com/jumbo/ocr/ocrtrigger/test/integration/pages/OCRLogsObjectPage"],function(e,r,t){"use strict";var o=new e({launchUrl:sap.ui.require.toUrl("com/jumbo/ocr/ocrtrigger")+"/test/flp.html#app-preview",pages:{onTheOCRLogsList:r,onTheOCRLogsObjectPage:t},async:true});return o});
+//# sourceMappingURL=JourneyRunner.js.map

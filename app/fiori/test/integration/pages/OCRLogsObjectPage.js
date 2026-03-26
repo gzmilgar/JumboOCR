@@ -1,0 +1,2 @@
+sap.ui.define(["sap/fe/test/ObjectPage"],function(e){"use strict";var t={actions:{},assertions:{}};return new e({appId:"com.jumbo.ocr.ocrtrigger",componentId:"OCRLogsObjectPage",contextPath:"/OCRLogs"},t)});
+//# sourceMappingURL=OCRLogsObjectPage.js.map
