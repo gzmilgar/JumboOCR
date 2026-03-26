@@ -15,15 +15,7 @@ sap.ui.define([
     "use strict";
 
     return {
-        onEditPress: function (oEvent) {
-            var oSource = oEvent.getSource();
-            var oBindingContext = oSource.getBindingContext();
-
-            if (!oBindingContext) {
-                MessageToast.show("No data context available");
-                return;
-            }
-
+        onEditPress: function (oBindingContext) {
             var oModel = oBindingContext.getModel();
             var oData = oBindingContext.getObject();
 
