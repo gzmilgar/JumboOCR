@@ -171,7 +171,7 @@ annotate service.OCRLogs with @(
         $Type          : 'UI.HeaderInfoType',
         TypeName       : 'OCR Log',
         TypeNamePlural : 'OCR Logs',
-        Title          : { Value: Uuid },
+        Title          : { Value: PurchaseOrder },
         Description    : { Value: ProcessName }
     }
 );
