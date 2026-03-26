@@ -138,6 +138,18 @@
                       "text": "Edit"
                     }
                   }
+                },
+                "body": {
+                  "sections": {
+                    "editSection": {
+                      "template": "com.jumbo.ocr.ocrtrigger.ext.EditSection",
+                      "title": "Actions",
+                      "position": {
+                        "placement": "Before",
+                        "anchor": "GeneralInfo"
+                      }
+                    }
+                  }
                 }
               },
               "navigation": {},

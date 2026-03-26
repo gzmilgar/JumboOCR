@@ -2,8 +2,8 @@
     xmlns="sap.m"
     xmlns:core="sap.ui.core"
     core:require="{ handler: 'com/jumbo/ocr/ocrtrigger/ext/ObjectPageExt' }">
-    <VBox id="_IDGenVBox1" class="sapUiSmallMargin">
-        <Button id="_IDGenButton"
+    <VBox class="sapUiSmallMargin">
+        <Button
             text="Edit"
             type="Emphasized"
             icon="sap-icon://edit"

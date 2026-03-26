@@ -159,19 +159,7 @@ annotate service.OCRLogs with @(
             Label  : 'Trigger',
             Action : 'OCRService.triggerLog',
             Inline : true
-        },
-        {
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Edit',
-            Action : 'OCRService.EntityContainer/updatePOLogData',
-            Inline : true
-        }      ,
-        {
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Save',
-            Action : 'OCRService.EntityContainer/updatePOLogData',
-            Inline : true
-        }              
+        }
     ]
 );
 
