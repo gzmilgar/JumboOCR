@@ -66,8 +66,8 @@ annotate service.OCRLogs with {
     ItemCount        @Core.Computed: true;
     CreatedAt        @Core.Computed: true;
     UpdatedAt        @Core.Computed: true;
-    NetAmount        @Core.Computed: true;
-    GrossAmount      @Core.Computed: true;
+    NetAmount        @title: 'Net Amount';
+    GrossAmount      @title: 'Gross Amount';
     TotalVat         @Core.Computed: true;
 
     // Edit edilebilir alanlar
@@ -155,13 +155,23 @@ annotate service.OCRLogs with @(
             Label : 'Created At'
         },
         {
-
-
             $Type  : 'UI.DataFieldForAction',
             Label  : 'Trigger',
             Action : 'OCRService.triggerLog',
             Inline : true
-        }
+        },
+        {
+            $Type  : 'UI.DataFieldForAction',
+            Label  : 'Edit',
+            Action : 'OCRService.EntityContainer/updatePOLogData',
+            Inline : true
+        }      ,
+        {
+            $Type  : 'UI.DataFieldForAction',
+            Label  : 'Save',
+            Action : 'OCRService.EntityContainer/updatePOLogData',
+            Inline : true
+        }              
     ]
 );
 

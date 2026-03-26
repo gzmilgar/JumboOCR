@@ -1,0 +1,148 @@
+sap.ui.define([
+    "sap/m/MessageToast",
+    "sap/m/Dialog",
+    "sap/m/Button",
+    "sap/m/Input",
+    "sap/m/Label",
+    "sap/m/TextArea",
+    "sap/m/Table",
+    "sap/m/Column",
+    "sap/m/ColumnListItem",
+    "sap/m/Text",
+    "sap/ui/layout/form/SimpleForm",
+    "sap/ui/model/json/JSONModel"
+], function (MessageToast, Dialog, Button, Input, Label, TextArea, Table, Column, ColumnListItem, Text, SimpleForm, JSONModel) {
+    "use strict";
+
+    return {
+        onEditPress: function (oBindingContext) {
+            var oModel = oBindingContext.getModel();
+            var oData = oBindingContext.getObject();
+
+            var oListBinding = oModel.bindList(oBindingContext.getPath() + "/Items");
+            oListBinding.requestContexts(0, 9999).then(function (aItemContexts) {
+                var aItems = aItemContexts.map(function (ctx) {
+                    var obj = ctx.getObject();
+                    return {
+                        itemNumber: obj.ItemNumber || "",
+                        description: obj.Description || "",
+                        unitPrice: obj.UnitPrice != null ? String(obj.UnitPrice) : "0",
+                        discount: obj.Discount != null ? String(obj.Discount) : "0"
+                    };
+                });
+
+                var oEditModel = new JSONModel({
+                    netAmount: oData.NetAmount != null ? String(oData.NetAmount) : "0",
+                    grossAmount: oData.GrossAmount != null ? String(oData.GrossAmount) : "0",
+                    currencyCode: oData.CurrencyCode || "",
+                    deliveryAdress: oData.DeliveryAdress || "",
+                    vendorAdress: oData.VendorAdress || "",
+                    items: aItems
+                });
+
+                var oHeaderForm = new SimpleForm({
+                    editable: true,
+                    layout: "ResponsiveGridLayout",
+                    labelSpanXL: 4,
+                    labelSpanL: 4,
+                    labelSpanM: 4,
+                    labelSpanS: 12,
+                    content: [
+                        new Label({ text: "Net Amount" }),
+                        new Input({ value: "{edit>/netAmount}", type: "Number" }),
+                        new Label({ text: "Gross Amount" }),
+                        new Input({ value: "{edit>/grossAmount}", type: "Number" }),
+                        new Label({ text: "Currency" }),
+                        new Input({ value: "{edit>/currencyCode}" }),
+                        new Label({ text: "Delivery Address" }),
+                        new TextArea({ value: "{edit>/deliveryAdress}", rows: 2 }),
+                        new Label({ text: "Vendor Address" }),
+                        new TextArea({ value: "{edit>/vendorAdress}", rows: 2 })
+                    ]
+                });
+
+                var oItemTemplate = new ColumnListItem({
+                    cells: [
+                        new Text({ text: "{edit>itemNumber}" }),
+                        new Text({ text: "{edit>description}" }),
+                        new Input({ value: "{edit>unitPrice}", type: "Number" }),
+                        new Input({ value: "{edit>discount}", type: "Number" })
+                    ]
+                });
+
+                var oItemsTable = new Table({
+                    headerText: "Items",
+                    columns: [
+                        new Column({ header: new Text({ text: "Item No" }) }),
+                        new Column({ header: new Text({ text: "Description" }) }),
+                        new Column({ header: new Text({ text: "Unit Price" }) }),
+                        new Column({ header: new Text({ text: "Discount" }) })
+                    ]
+                });
+
+                oItemsTable.bindItems({
+                    path: "edit>/items",
+                    template: oItemTemplate
+                });
+
+                var oDialog = new Dialog({
+                    title: "Edit Details",
+                    contentWidth: "700px",
+                    verticalScrolling: true,
+                    content: [oHeaderForm, oItemsTable],
+                    beginButton: new Button({
+                        text: "Save",
+                        type: "Emphasized",
+                        press: function () {
+                            var editData = oEditModel.getData();
+
+                            var oActionBinding = oModel.bindContext("/updatePOLogData(...)");
+                            oActionBinding.setParameter("uuid", oData.Uuid);
+                            oActionBinding.setParameter("headerData", JSON.stringify({
+                                netAmount: editData.netAmount,
+                                grossAmount: editData.grossAmount,
+                                currencyCode: editData.currencyCode,
+                                deliveryAdress: editData.deliveryAdress,
+                                vendorAdress: editData.vendorAdress
+                            }));
+                            oActionBinding.setParameter("itemsData", JSON.stringify(
+                                editData.items.map(function (item) {
+                                    return {
+                                        itemNumber: item.itemNumber,
+                                        unitPrice: item.unitPrice,
+                                        discount: item.discount
+                                    };
+                                })
+                            ));
+
+                            oActionBinding.execute().then(function () {
+                                var oResult = oActionBinding.getBoundContext().getObject();
+                                if (oResult.success) {
+                                    MessageToast.show("Operation Successful");
+                                    oBindingContext.refresh();
+                                    oDialog.close();
+                                } else {
+                                    MessageToast.show("Save failed: " + (oResult.message || "Unknown error"));
+                                }
+                            }).catch(function (oError) {
+                                MessageToast.show("Save failed: " + oError.message);
+                            });
+                        }
+                    }),
+                    endButton: new Button({
+                        text: "Cancel",
+                        press: function () {
+                            oDialog.close();
+                        }
+                    }),
+                    afterClose: function () {
+                        oDialog.destroy();
+                    }
+                });
+
+                oDialog.setModel(oEditModel, "edit");
+                oDialog.open();
+            });
+        }
+    };
+});

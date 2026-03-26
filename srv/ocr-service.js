@@ -153,6 +153,7 @@ this.on('UPDATE', 'OCRLogs', async (req) => {
         if (Object.keys(patchBody).length > 0) {
             await s4Patch('OCRLogHead(' + uuid + ')', patchBody);
             console.log('UPDATE OCRLogs: S/4HANA PATCH success, uuid=' + uuid);
+            req.info('Operation Successful');
         } else {
             console.log('UPDATE OCRLogs: patchBody empty, skipping S/4HANA call');
         }
@@ -201,7 +202,8 @@ this.on('UPDATE', 'OCRItems', async (req) => {
         await s4Patch("OCRLogItem(HeaderId=guid'" + sapUuid + "',ItemNumber='" + iNo + "')", {
             Barcode:   d.Barcode,
             Quantity:  d.Quantity,
-            UnitPrice: d.UnitPrice
+            UnitPrice: d.UnitPrice,
+            Discount:  d.Discount
         });
     } catch(e) {
         console.error('UPDATE OCRItems error:', e.message);
@@ -580,23 +582,36 @@ this.on('updatePOLogData', async (req) => {
         var hdr   = JSON.parse(req.data.headerData || '{}');
         var items = JSON.parse(req.data.itemsData  || '[]');
 
-        await s4Patch("OCRLogHead(" + uuid + ")", {
-            PurchaseOrder:  hdr.purchaseOrder  || '',
-            DeliveryDate:   hdr.deliveryDate   || null,
-            DocumentDate:   hdr.documentDate   || null,
-            ReceiverId:     hdr.receiverId     || '',
-            DeliveryAdress: hdr.deliveryAdress || '',
-            VendorAdress:   hdr.vendorAdress   || ''
-        });
+        // Only patch fields that were provided
+        var headerPatch = {};
+        if (hdr.purchaseOrder !== undefined)  headerPatch.PurchaseOrder  = hdr.purchaseOrder  || '';
+        if (hdr.deliveryDate !== undefined)   headerPatch.DeliveryDate   = hdr.deliveryDate   || null;
+        if (hdr.documentDate !== undefined)   headerPatch.DocumentDate   = hdr.documentDate   || null;
+        if (hdr.receiverId !== undefined)     headerPatch.ReceiverId     = hdr.receiverId     || '';
+        if (hdr.deliveryAdress !== undefined) headerPatch.DeliveryAdress = hdr.deliveryAdress || '';
+        if (hdr.vendorAdress !== undefined)   headerPatch.VendorAdress   = hdr.vendorAdress   || '';
+        if (hdr.netAmount !== undefined)      headerPatch.NetAmount      = parseFloat(hdr.netAmount)   || 0;
+        if (hdr.grossAmount !== undefined)    headerPatch.GrossAmount    = parseFloat(hdr.grossAmount) || 0;
+        if (hdr.currencyCode !== undefined)   headerPatch.CurrencyCode   = hdr.currencyCode   || '';
+
+        if (Object.keys(headerPatch).length > 0) {
+            await s4Patch("OCRLogHead(" + uuid + ")", headerPatch);
+        }
 
         for (var i = 0; i < items.length; i++) {
             var item = items[i];
-            await s4Patch(
-                "OCRLogItem(HeaderId=" + uuid + ",ItemNumber='" + item.itemNumber + "')", {
-                Barcode:   item.barcode            || '',
-                Quantity:  parseFloat(item.quantity)  || 0,
-                UnitPrice: parseFloat(item.unitPrice) || 0
-            });
+            var itemPatch = {};
+            if (item.barcode !== undefined)   itemPatch.Barcode   = item.barcode            || '';
+            if (item.quantity !== undefined)   itemPatch.Quantity  = parseFloat(item.quantity)  || 0;
+            if (item.unitPrice !== undefined)  itemPatch.UnitPrice = parseFloat(item.unitPrice) || 0;
+            if (item.discount !== undefined)   itemPatch.Discount  = parseFloat(item.discount)  || 0;
+
+            if (Object.keys(itemPatch).length > 0) {
+                await s4Patch(
+                    "OCRLogItem(HeaderId=" + uuid + ",ItemNumber='" + item.itemNumber + "')",
+                    itemPatch
+                );
+            }
         }
 
         return { success: true, message: 'Updated successfully' };
