@@ -56,32 +56,44 @@ annotate service.OCRLogs with {
     // Read-only alanlar
     Uuid             @Core.Immutable: true
                      @UI.HiddenFilter: true;
-    ProcessName      @Core.Computed: true;
-    PdfName          @Core.Computed: true;
+    ProcessName      @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '7rem' };
+    PdfName          @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '18rem' };
     MailSubject      @Core.Computed: true;
-    Status           @Core.Computed: true;
+    Status           @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '7rem' };
     StatusCriticality @Core.Computed: true
                      @UI.Hidden: true
                      @UI.HiddenFilter: true;
-    SalesOrderNumber @Core.Computed: true;
-    ErrorMessage     @Core.Computed: true;
+    SalesOrderNumber @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '9rem' };
+    ErrorMessage     @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '20rem' };
     MissingBarcodes  @Core.Computed: true;
-    ItemCount        @Core.Computed: true;
-    CreatedAt        @Core.Computed: true;
+    ItemCount        @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '6rem' };
+    CreatedAt        @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '12rem' };
     UpdatedAt        @Core.Computed: true;
-    NetAmount        @title: 'Net Amount';
-    GrossAmount      @title: 'Gross Amount';
+    NetAmount        @title: 'Net Amount'
+                     @HTML5.CssDefaults: { width: '8rem' };
+    GrossAmount      @title: 'Gross Amount'
+                     @HTML5.CssDefaults: { width: '8rem' };
     TotalVat         @Core.Computed: true;
 
     // Edit edilebilir alanlar
-    PurchaseOrder    @title: 'Purchase Order';
+    PurchaseOrder    @title: 'Purchase Order'
+                     @HTML5.CssDefaults: { width: '10rem' };
     DeliveryDate     @title: 'Delivery Date';
     DocumentDate     @title: 'Document Date';
     ReceiverId       @title: 'Receiver ID';
-    CurrencyCode     @title: 'Currency';
+    CurrencyCode     @title: 'Currency'
+                     @HTML5.CssDefaults: { width: '6rem' };
     DeliveryAdress   @title: 'Delivery Address';
     VendorAdress     @title: 'Vendor Address';
-    Discount         @title: 'Discount';
+    Discount         @title: 'Discount'
+                     @HTML5.CssDefaults: { width: '6rem' };
 }
 
 // ============================================================
@@ -122,8 +134,12 @@ annotate service.OCRLogs with @(
 annotate service.OCRLogs with @(
     UI.LineItem: [
         {
-
-
+            $Type       : 'UI.DataField',
+            Value       : Status,
+            Label       : 'Status',
+            Criticality : StatusCriticality
+        },
+        {
             $Type : 'UI.DataField',
             Value : ProcessName,
             Label : 'Process'
@@ -134,17 +150,9 @@ annotate service.OCRLogs with @(
             Label : 'PDF'
         },
         {
-
-
             $Type : 'UI.DataField',
             Value : PurchaseOrder,
             Label : 'PO Number'
-        },
-        {
-            $Type       : 'UI.DataField',
-            Value       : Status,
-            Label       : 'Status',
-            Criticality : StatusCriticality
         },
         {
             $Type : 'UI.DataField',
@@ -155,6 +163,36 @@ annotate service.OCRLogs with @(
             $Type : 'UI.DataField',
             Value : CreatedAt,
             Label : 'Created At'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : CurrencyCode,
+            Label : 'Currency'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : GrossAmount,
+            Label : 'Gross Amount'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : Discount,
+            Label : 'Discount'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : ItemCount,
+            Label : 'ItemCount'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : NetAmount,
+            Label : 'Net Amount'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : ErrorMessage,
+            Label : 'Error Message'
         },
         {
             $Type  : 'UI.DataFieldForAction',
