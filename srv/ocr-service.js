@@ -251,10 +251,16 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     return req.data;
 });
 
-    // triggerLog - super.init() ÖNCE
-    this.on('triggerLog', async (req) => {
-        var uuid = req.data.uuid;
+    await super.init();
+
+    // ============================================================
+    // triggerLog - Bound action on OCRLogs
+    // ============================================================
+    this.on('triggerLog', 'OCRLogs', async (req) => {
+        var uuid = req.params?.[0]?.Uuid || req.params?.[0];
+        console.log('triggerLog called: uuid=' + uuid);
         try {
+            if (!uuid) return { success: false, message: 'UUID is required', salesOrder: '' };
             var logEntry = await s4GetPOLog(uuid);
             if (!logEntry) return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
             var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
@@ -265,7 +271,8 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress, taxId: logEntry.taxId,
                 lineItems: logEntry.items.map(function(i) {
                     return { barcode: i.Barcode||'', quantity: String(i.Quantity||''), unitPrice: String(i.UnitPrice||''),
-                             itemNumber: i.ItemNumber||'', description: i.Description||'', materialNumber: i.MaterialNumber||'' };
+                             discount: String(i.Discount||''), itemNumber: i.ItemNumber||'', description: i.Description||'',
+                             materialNumber: i.MaterialNumber||'' };
                 })
             };
             var data = wrapForBuildPayload(minData);
@@ -282,10 +289,8 @@ this.on('UPDATE', 'OCRItems', async (req) => {
         }
     });
 
-    await super.init();
-
     // ============================================================
-    // Bound retrigger action (Object Page butonu)
+    // Bound retrigger action (Object Page butonu) - backward compat
     // ============================================================
     this.on('retrigger', 'OCRLogs', async (req) => {
         const uuid = req.params?.[0]?.Uuid || req.params?.[0];
