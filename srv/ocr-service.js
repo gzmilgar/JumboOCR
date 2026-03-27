@@ -111,7 +111,6 @@ this.on('READ', 'OCRItems', async (req) => {
 });
     // UPDATE - super.init() ÖNCE
 this.on('UPDATE', 'OCRLogs', async (req) => {
-    // params'tan uuid al - tüm olası yolları dene
     let uuid = req.params?.[0]?.Uuid 
             || req.params?.[0] 
             || req.data?.Uuid;
@@ -128,38 +127,68 @@ this.on('UPDATE', 'OCRLogs', async (req) => {
     const d = req.data;
     
     try {
-        // Sadece gelen field'ları patch body'e ekle
+        // ── 1. HEADER PATCH ──────────────────────────────────────
         const patchBody = {};
-        
-        if (d.PurchaseOrder  !== undefined) patchBody.PurchaseOrder  = d.PurchaseOrder  || '';
-        if (d.DeliveryDate   !== undefined) patchBody.DeliveryDate   = d.DeliveryDate   || null;
-        if (d.DocumentDate   !== undefined) patchBody.DocumentDate   = d.DocumentDate   || null;
-        if (d.ReceiverId     !== undefined) patchBody.ReceiverId     = d.ReceiverId     || '';
-        if (d.CurrencyCode   !== undefined) patchBody.CurrencyCode   = d.CurrencyCode   || '';
-        if (d.NetAmount      !== undefined) patchBody.NetAmount      = parseFloat(d.NetAmount)   || 0;
-        if (d.GrossAmount    !== undefined) patchBody.GrossAmount    = parseFloat(d.GrossAmount) || 0;
-        if (d.TotalVat       !== undefined) patchBody.TotalVat       = d.TotalVat       || '';
-        if (d.Discount       !== undefined) patchBody.Discount       = parseFloat(d.Discount)    || 0;
-        if (d.DeliveryAdress !== undefined) patchBody.DeliveryAdress = d.DeliveryAdress || '';
-        if (d.VendorAdress   !== undefined) patchBody.VendorAdress   = d.VendorAdress   || '';
-        if (d.Status         !== undefined) patchBody.Status         = d.Status         || '';
+        if (d.PurchaseOrder    !== undefined) patchBody.PurchaseOrder    = d.PurchaseOrder    || '';
+        if (d.DeliveryDate     !== undefined) patchBody.DeliveryDate     = d.DeliveryDate     || null;
+        if (d.DocumentDate     !== undefined) patchBody.DocumentDate     = d.DocumentDate     || null;
+        if (d.ReceiverId       !== undefined) patchBody.ReceiverId       = d.ReceiverId       || '';
+        if (d.CurrencyCode     !== undefined) patchBody.CurrencyCode     = d.CurrencyCode     || '';
+        if (d.NetAmount        !== undefined) patchBody.NetAmount        = parseFloat(d.NetAmount)   || 0;
+        if (d.GrossAmount      !== undefined) patchBody.GrossAmount      = parseFloat(d.GrossAmount) || 0;
+        if (d.TotalVat         !== undefined) patchBody.TotalVat         = d.TotalVat         || '';
+        if (d.Discount         !== undefined) patchBody.Discount         = parseFloat(d.Discount)    || 0;
+        if (d.DeliveryAdress   !== undefined) patchBody.DeliveryAdress   = d.DeliveryAdress   || '';
+        if (d.VendorAdress     !== undefined) patchBody.VendorAdress     = d.VendorAdress     || '';
+        if (d.Status           !== undefined) patchBody.Status           = d.Status           || '';
         if (d.SalesOrderNumber !== undefined) patchBody.SalesOrderNumber = d.SalesOrderNumber || '';
-        if (d.ErrorMessage   !== undefined) patchBody.ErrorMessage   = d.ErrorMessage   || '';
-        if (d.MissingBarcodes !== undefined) patchBody.MissingBarcodes = d.MissingBarcodes || '';
+        if (d.ErrorMessage     !== undefined) patchBody.ErrorMessage     = d.ErrorMessage     || '';
+        if (d.MissingBarcodes  !== undefined) patchBody.MissingBarcodes  = d.MissingBarcodes  || '';
 
-        console.log('UPDATE OCRLogs: patchBody=' + JSON.stringify(patchBody));
-
-        // Patch body boş değilse S/4HANA'ya gönder
         if (Object.keys(patchBody).length > 0) {
+            console.log('UPDATE OCRLogs: patchBody=' + JSON.stringify(patchBody));
             await s4Patch('OCRLogHead(' + uuid + ')', patchBody);
-            console.log('UPDATE OCRLogs: S/4HANA PATCH success, uuid=' + uuid);
-            req.info('Operation Successful');
-        } else {
-            console.log('UPDATE OCRLogs: patchBody empty, skipping S/4HANA call');
+            console.log('UPDATE OCRLogs: header PATCH success');
         }
 
-        // Güncel veriyi S/4HANA'dan çek ve döndür
+        // ── 2. ITEMS PATCH ───────────────────────────────────────
+        const items = d.Items || [];
+        console.log('UPDATE OCRLogs: items count=' + items.length);
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+
+            const rawItemNo    = String(item.ItemNumber || '').trim();
+            const paddedItemNo = rawItemNo.padStart(6, '0');
+
+            if (!paddedItemNo || paddedItemNo === '000000') {
+                console.warn('UPDATE OCRLogs: item[' + i + '] has no valid ItemNumber, skipping');
+                continue;
+            }
+
+            const itemPatch = {};
+            if (item.Barcode        !== undefined) itemPatch.Barcode        = item.Barcode              || '';
+            if (item.Quantity       !== undefined) itemPatch.Quantity       = parseFloat(item.Quantity)  || 0;
+            if (item.UnitPrice      !== undefined) itemPatch.UnitPrice      = parseFloat(item.UnitPrice) || 0;
+            if (item.Discount       !== undefined) itemPatch.Discount       = parseFloat(item.Discount)  || 0;
+            if (item.Description    !== undefined) itemPatch.Description    = item.Description           || '';
+            if (item.MaterialNumber !== undefined) itemPatch.MaterialNumber = item.MaterialNumber        || '';
+            if (item.Unit           !== undefined) itemPatch.Unit           = item.Unit                  || 'EA';
+
+            if (Object.keys(itemPatch).length > 0) {
+                const itemUrl = "OCRLogItem(HeaderId=" + uuid + 
+                                ",ItemNumber='" + paddedItemNo + "')";
+                console.log('UPDATE OCRLogs: PATCH item URL=' + itemUrl);
+                console.log('UPDATE OCRLogs: PATCH item body=' + JSON.stringify(itemPatch));
+                await s4Patch(itemUrl, itemPatch);
+                console.log('UPDATE OCRLogs: item PATCH success, ItemNumber=' + paddedItemNo);
+            }
+        }
+
+        // ── 3. GÜNCEL VERİYİ S/4HANA'DAN ÇEK ───────────────────
+        console.log('UPDATE OCRLogs: fetching updated data from S/4HANA...');
         const updated = await s4GetPOLog(uuid);
+        console.log('UPDATE OCRLogs: fetch success, status=' + updated.status);
 
         return {
             Uuid:             updated.uuid             || uuid,
@@ -183,7 +212,18 @@ this.on('UPDATE', 'OCRLogs', async (req) => {
             MissingBarcodes:  updated.missingBarcodes  || d.MissingBarcodes  || '',
             ItemCount:        updated.itemCount        || d.ItemCount        || 0,
             CreatedAt:        updated.createdAt        || d.CreatedAt        || '',
-            UpdatedAt:        updated.updatedAt        || d.UpdatedAt        || ''
+            UpdatedAt:        updated.updatedAt        || d.UpdatedAt        || '',
+            Items: (updated.items || []).map(item => ({
+                HeaderId:       item.HeaderId       || uuid,
+                ItemNumber:     item.ItemNumber      || '',
+                Barcode:        item.Barcode         || '',
+                Description:    item.Description     || '',
+                MaterialNumber: item.MaterialNumber  || '',
+                Unit:           item.Unit            || 'EA',
+                Quantity:       parseFloat(item.Quantity)  || 0,
+                UnitPrice:      parseFloat(item.UnitPrice) || 0,
+                Discount:       parseFloat(item.Discount)  || 0
+            }))
         };
 
     } catch (e) {
@@ -582,42 +622,105 @@ this.on('updatePOLogData', async (req) => {
         var hdr   = JSON.parse(req.data.headerData || '{}');
         var items = JSON.parse(req.data.itemsData  || '[]');
 
-        // Only patch fields that were provided
+        console.log('updatePOLogData: uuid=' + uuid);
+        console.log('updatePOLogData: items=' + JSON.stringify(items));
+
+        // ── 1. HEADER PATCH ──────────────────────────────────
         var headerPatch = {};
-        if (hdr.purchaseOrder !== undefined)  headerPatch.PurchaseOrder  = hdr.purchaseOrder  || '';
-        if (hdr.deliveryDate !== undefined)   headerPatch.DeliveryDate   = hdr.deliveryDate   || null;
-        if (hdr.documentDate !== undefined)   headerPatch.DocumentDate   = hdr.documentDate   || null;
-        if (hdr.receiverId !== undefined)     headerPatch.ReceiverId     = hdr.receiverId     || '';
+        if (hdr.purchaseOrder  !== undefined) headerPatch.PurchaseOrder  = hdr.purchaseOrder  || '';
+        if (hdr.deliveryDate   !== undefined) headerPatch.DeliveryDate   = hdr.deliveryDate   || null;
+        if (hdr.documentDate   !== undefined) headerPatch.DocumentDate   = hdr.documentDate   || null;
+        if (hdr.receiverId     !== undefined) headerPatch.ReceiverId     = hdr.receiverId     || '';
         if (hdr.deliveryAdress !== undefined) headerPatch.DeliveryAdress = hdr.deliveryAdress || '';
-        if (hdr.vendorAdress !== undefined)   headerPatch.VendorAdress   = hdr.vendorAdress   || '';
-        if (hdr.netAmount !== undefined)      headerPatch.NetAmount      = parseFloat(hdr.netAmount)   || 0;
-        if (hdr.grossAmount !== undefined)    headerPatch.GrossAmount    = parseFloat(hdr.grossAmount) || 0;
-        if (hdr.currencyCode !== undefined)   headerPatch.CurrencyCode   = hdr.currencyCode   || '';
+        if (hdr.vendorAdress   !== undefined) headerPatch.VendorAdress   = hdr.vendorAdress   || '';
+        if (hdr.netAmount      !== undefined) headerPatch.NetAmount      = parseFloat(hdr.netAmount)   || 0;
+        if (hdr.grossAmount    !== undefined) headerPatch.GrossAmount    = parseFloat(hdr.grossAmount) || 0;
+        if (hdr.currencyCode   !== undefined) headerPatch.CurrencyCode   = hdr.currencyCode   || '';
 
         if (Object.keys(headerPatch).length > 0) {
+            console.log('updatePOLogData: header patch=' + JSON.stringify(headerPatch));
             await s4Patch("OCRLogHead(" + uuid + ")", headerPatch);
+            console.log('updatePOLogData: header PATCH success');
         }
 
+        // ── 2. ITEMS PATCH ────────────────────────────────────
         for (var i = 0; i < items.length; i++) {
             var item = items[i];
+
+            // ItemNumber normalize → "10" veya "000010" → "000010"
+            var rawItemNo    = String(item.itemNumber || item.ItemNumber || '').trim();
+            var paddedItemNo = rawItemNo.padStart(6, '0');
+
+            console.log('updatePOLogData: item[' + i + '] rawItemNo=' + rawItemNo + 
+                        ' paddedItemNo=' + paddedItemNo);
+
+            if (!paddedItemNo || paddedItemNo === '000000') {
+                console.warn('updatePOLogData: item[' + i + '] gecersiz ItemNumber, atlanıyor');
+                continue;
+            }
+
             var itemPatch = {};
-            if (item.barcode !== undefined)   itemPatch.Barcode   = item.barcode            || '';
-            if (item.quantity !== undefined)   itemPatch.Quantity  = parseFloat(item.quantity)  || 0;
-            if (item.unitPrice !== undefined)  itemPatch.UnitPrice = parseFloat(item.unitPrice) || 0;
-            if (item.discount !== undefined)   itemPatch.Discount  = parseFloat(item.discount)  || 0;
+            if (item.barcode   !== undefined) itemPatch.Barcode    = item.barcode              || '';
+            if (item.quantity  !== undefined) itemPatch.Quantity   = parseFloat(item.quantity)  || 0;
+            if (item.unitPrice !== undefined) itemPatch.UnitPrice  = parseFloat(item.unitPrice) || 0;
+            if (item.discount  !== undefined) itemPatch.Discount   = parseFloat(item.discount)  || 0;
+
+            // camelCase de gelebilir kontrol et
+            if (item.Barcode    !== undefined) itemPatch.Barcode   = item.Barcode              || '';
+            if (item.Quantity   !== undefined) itemPatch.Quantity  = parseFloat(item.Quantity)  || 0;
+            if (item.UnitPrice  !== undefined) itemPatch.UnitPrice = parseFloat(item.UnitPrice) || 0;
+            if (item.Discount   !== undefined) itemPatch.Discount  = parseFloat(item.Discount)  || 0;
 
             if (Object.keys(itemPatch).length > 0) {
-                await s4Patch(
-                    "OCRLogItem(HeaderId=" + uuid + ",ItemNumber='" + item.itemNumber + "')",
-                    itemPatch
-                );
+                var itemUrl = "OCRLogItem(HeaderId=" + uuid + 
+                              ",ItemNumber='" + paddedItemNo + "')";
+                console.log('updatePOLogData: PATCH URL=' + itemUrl);
+                console.log('updatePOLogData: PATCH body=' + JSON.stringify(itemPatch));
+                await s4Patch(itemUrl, itemPatch);
+                console.log('updatePOLogData: item PATCH success ItemNumber=' + paddedItemNo);
             }
         }
 
-        return { success: true, message: 'Updated successfully' };
+        // ── 3. GÜNCEL VERİYİ S/4HANA'DAN ÇEK VE DÖNDÜR ──────
+        console.log('updatePOLogData: fetching updated data...');
+        const updated = await s4GetPOLog(uuid);
+        console.log('updatePOLogData: fetch success');
+
+        return {
+            success: true,
+            message: 'Updated successfully',
+            // Güncel header bilgileri
+            uuid:             updated.uuid             || uuid,
+            purchaseOrder:    updated.purchaseOrder    || '',
+            deliveryDate:     updated.deliveryDate     || '',
+            documentDate:     updated.documentDate     || '',
+            receiverId:       updated.receiverId       || '',
+            currencyCode:     updated.currencyCode     || '',
+            netAmount:        updated.netAmount        || '0',
+            grossAmount:      updated.grossAmount      || '0',
+            deliveryAdress:   updated.deliveryAdress   || '',
+            vendorAdress:     updated.vendorAdress     || '',
+            status:           updated.status           || '',
+            salesOrderNumber: updated.salesOrderNumber || '',
+            errorMessage:     updated.errorMessage     || '',
+            missingBarcodes:  updated.missingBarcodes  || '',
+            // Güncel item bilgileri
+            items: JSON.stringify((updated.items || []).map(item => ({
+                HeaderId:       item.HeaderId       || uuid,
+                ItemNumber:     item.ItemNumber      || '',
+                Barcode:        item.Barcode         || '',
+                Description:    item.Description     || '',
+                MaterialNumber: item.MaterialNumber  || '',
+                Unit:           item.Unit            || 'EA',
+                Quantity:       parseFloat(item.Quantity)  || 0,
+                UnitPrice:      parseFloat(item.UnitPrice) || 0,
+                Discount:       parseFloat(item.Discount)  || 0
+            })))
+        };
 
     } catch (e) {
         console.error('updatePOLogData error: ' + e.message);
+        console.error('updatePOLogData stack: ' + e.stack);
         return { success: false, message: e.message };
     }
 });
