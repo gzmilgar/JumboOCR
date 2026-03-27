@@ -1,6 +1,17 @@
 using OCRService as service from '../../srv/ocr-service';
 
 // ============================================================
+// SideEffects - triggerLog sonrası UI refresh
+// ============================================================
+annotate service.OCRLogs with @(
+    Common.SideEffects #triggerLogEffect : {
+        $Type            : 'Common.SideEffectsType',
+        SourceActions    : ['triggerLog'],
+        TargetProperties : ['Status', 'SalesOrderNumber', 'ErrorMessage', 'MissingBarcodes', 'ItemCount', 'UpdatedAt']
+    }
+);
+
+// ============================================================
 // Capabilities - OCRLogs
 // ============================================================
 annotate service.OCRLogs with @(
