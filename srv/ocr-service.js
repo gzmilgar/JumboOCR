@@ -4,6 +4,16 @@ const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 var OCR_BASE = '/sap/opu/odata4/sap/zsdocr_sb_log_o4/srvd/sap/zsd_ocr_log_srv/0001/';
 
+function statusCriticality(status) {
+    switch ((status || '').toUpperCase()) {
+        case 'SUCCESS':  return 3; // Positive (green)
+        case 'FAILED':   return 1; // Negative (red)
+        case 'RETRYING': return 2; // Critical (orange)
+        case 'PENDING':  return 2; // Critical (orange)
+        default:         return 0; // None (neutral)
+    }
+}
+
 module.exports = class extends cds.ApplicationService { async init() {
 
     // ============================================================
@@ -23,6 +33,7 @@ if (uuid) {
         GrossAmount: parseFloat(r.grossAmount) || 0, TotalVat: r.totalVat || '',
         Discount: parseFloat(r.discount) || 0, DeliveryAdress: r.deliveryAdress || '',
         VendorAdress: r.vendorAdress || '', Status: r.status || '',
+        StatusCriticality: statusCriticality(r.status),
         SalesOrderNumber: r.salesOrderNumber || '', ErrorMessage: r.errorMessage || '',
         MissingBarcodes: r.missingBarcodes || '', ItemCount: r.itemCount || 0,
         CreatedAt: r.createdAt || '', UpdatedAt: r.updatedAt || '',
@@ -54,6 +65,7 @@ if (uuid) {
                     GrossAmount: r.GrossAmount || 0, TotalVat: r.TotalVat || '',
                     Discount: r.Discount || 0, DeliveryAdress: r.DeliveryAdress || '',
                     VendorAdress: r.VendorAdress || '', Status: r.Status || '',
+                    StatusCriticality: statusCriticality(r.Status),
                     SalesOrderNumber: r.SalesOrderNumber || '', ErrorMessage: r.ErrorMessage || '',
                     MissingBarcodes: r.MissingBarcodes || '', ItemCount: r.ItemCount || 0,
                     CreatedAt: r.CreatedAt || '', UpdatedAt: r.UpdatedAt || ''
@@ -251,16 +263,16 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     return req.data;
 });
 
+    await super.init();
+
     // ============================================================
-    // triggerLog - Unbound action (called via fetch API from UI)
+    // triggerLog - Bound action on OCRLogs
     // ============================================================
-    this.on('triggerLog', async (req) => {
-        var uuid = req.data.uuid;
+    this.on('triggerLog', 'OCRLogs', async (req) => {
+        var uuid = req.params?.[0]?.Uuid || req.params?.[0];
         console.log('triggerLog called: uuid=' + uuid);
         try {
-            if (!uuid) {
-                return { success: false, message: 'UUID is required', salesOrder: '' };
-            }
+            if (!uuid) return { success: false, message: 'UUID is required', salesOrder: '' };
             var logEntry = await s4GetPOLog(uuid);
             if (!logEntry) {
                 return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
@@ -306,8 +318,6 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             return { success: false, message: errorMsg, salesOrder: '' };
         }
     });
-
-    await super.init();
 
     // ============================================================
     // Bound retrigger action (Object Page butonu) - backward compat
@@ -944,7 +954,7 @@ async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, ite
     if (!uuid) return;
     try {
         var now = new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'');
-        // Truncate and sanitize error message for S/4HANA field length
+        // Truncate fields to prevent S/4HANA PATCH failure due to field length
         var safeErrorMsg = String(errorMessage || '').substring(0, 220);
         var safeSoNumber = String(salesOrderNumber || '').substring(0, 40);
         var safeMissing  = String(missingBarcodes || '').substring(0, 220);

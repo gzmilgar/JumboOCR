@@ -11,6 +11,8 @@ sap.ui.define([
             routing: {
                 onAfterBinding: function (oBindingContext) {
                     this._currentContext = oBindingContext;
+                    // Reset cached sales order when navigating to a new/different record
+                    this._createdSalesOrder = null;
 
                     if (this._buttonsAdded) {
                         return;
@@ -87,38 +89,52 @@ sap.ui.define([
                 return;
             }
 
-            var oModel = oContext.getModel();
-            var oData = oContext.getObject();
-            var sUuid = oData.Uuid;
-
-            if (!sUuid) {
-                MessageToast.show("UUID not found");
-                return;
-            }
-
-            // Sales Order zaten oluşturulmuşsa trigger'a izin verme
-            if (oData.SalesOrderNumber) {
+            // Check locally cached sales order from previous trigger
+            if (this._createdSalesOrder) {
                 MessageBox.warning(
-                    "Sales Order " + oData.SalesOrderNumber + " already created. Triggering again is not allowed.",
+                    "Sales Order " + this._createdSalesOrder + " already created. Triggering again is not allowed.",
                     { title: "Trigger Not Allowed" }
                 );
                 return;
             }
 
-            MessageBox.confirm(
-                "Are you sure you want to trigger Sales Order creation for PO: " + (oData.PurchaseOrder || sUuid) + "?",
-                {
-                    title: "Confirm Trigger",
-                    onClose: function (sAction) {
-                        if (sAction === MessageBox.Action.OK) {
-                            that._executeTrigger(oModel, sUuid, oContext);
+            var oModel = oContext.getModel();
+
+            // Use requestObject to get fresh data from OData V4 context
+            oContext.requestObject().then(function (oData) {
+                var sUuid = oData.Uuid;
+
+                if (!sUuid) {
+                    MessageToast.show("UUID not found");
+                    return;
+                }
+
+                // Sales Order zaten oluşturulmuşsa trigger'a izin verme
+                if (oData.SalesOrderNumber) {
+                    that._createdSalesOrder = oData.SalesOrderNumber;
+                    MessageBox.warning(
+                        "Sales Order " + oData.SalesOrderNumber + " already created. Triggering again is not allowed.",
+                        { title: "Trigger Not Allowed" }
+                    );
+                    return;
+                }
+
+                MessageBox.confirm(
+                    "Are you sure you want to trigger Sales Order creation for PO: " + (oData.PurchaseOrder || sUuid) + "?",
+                    {
+                        title: "Confirm Trigger",
+                        onClose: function (sAction) {
+                            if (sAction === MessageBox.Action.OK) {
+                                that._executeTrigger(oModel, sUuid, oContext);
+                            }
                         }
                     }
-                }
-            );
+                );
+            });
         },
 
         _executeTrigger: function (oModel, sUuid, oContext) {
+            var that = this;
             var sServiceUrl = oModel.getServiceUrl();
 
             // Show busy indicator
@@ -132,14 +148,14 @@ sap.ui.define([
             .then(function (tokenResponse) {
                 var sCsrfToken = tokenResponse.headers.get("X-Csrf-Token");
 
-                // Step 2: Call triggerLog action
-                return fetch(sServiceUrl + "triggerLog", {
+                // Step 2: Call triggerLog bound action on OCRLogs entity
+                return fetch(sServiceUrl + "OCRLogs(" + sUuid + ")/OCRService.triggerLog", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "X-Csrf-Token": sCsrfToken
                     },
-                    body: JSON.stringify({ uuid: sUuid })
+                    body: JSON.stringify({})
                 });
             })
             .then(function (response) {
@@ -169,38 +185,29 @@ sap.ui.define([
             .then(function (result) {
                 sap.ui.core.BusyIndicator.hide();
 
+                // Refresh model immediately so Object Page gets fresh data
+                oModel.refresh();
+
                 if (result.success) {
+                    // Cache sales order to block future triggers without server round-trip
+                    that._createdSalesOrder = result.salesOrder;
                     MessageBox.success(
                         "Sales Order " + result.salesOrder + " created successfully!",
-                        {
-                            title: "Success",
-                            onClose: function () {
-                                oModel.refresh();
-                            }
-                        }
+                        { title: "Success" }
                     );
                 } else {
                     MessageBox.error(
                         result.message || "Sales order creation failed",
-                        {
-                            title: "Trigger Failed",
-                            onClose: function () {
-                                oModel.refresh();
-                            }
-                        }
+                        { title: "Trigger Failed" }
                     );
                 }
             })
             .catch(function (error) {
                 sap.ui.core.BusyIndicator.hide();
+                oModel.refresh();
                 MessageBox.error(
                     error.message || "Request failed",
-                    {
-                        title: "Trigger Failed",
-                        onClose: function () {
-                            oModel.refresh();
-                        }
-                    }
+                    { title: "Trigger Failed" }
                 );
             });
         }
