@@ -145,8 +145,9 @@ sap.ui.define([
                             .then(function (result) {
                                 if (result.success) {
                                     MessageToast.show("Operation Successful");
-                                    oBindingContext.refresh();
                                     oDialog.close();
+                                    // Force full model refresh to reload items too
+                                    oModel.refresh();
                                 } else {
                                     MessageToast.show("Save failed: " + (result.message || "Unknown error"));
                                 }

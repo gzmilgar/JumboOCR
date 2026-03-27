@@ -166,25 +166,33 @@ sap.ui.define([
                         {
                             title: "Success",
                             onClose: function () {
-                                oContext.refresh();
+                                oModel.refresh();
                             }
                         }
                     );
                 } else {
                     MessageBox.error(
                         result.message || "Sales order creation failed",
-                        { title: "Trigger Failed" }
+                        {
+                            title: "Trigger Failed",
+                            onClose: function () {
+                                oModel.refresh();
+                            }
+                        }
                     );
-                    oContext.refresh();
                 }
             })
             .catch(function (error) {
                 sap.ui.core.BusyIndicator.hide();
                 MessageBox.error(
                     error.message || "Request failed",
-                    { title: "Trigger Failed" }
+                    {
+                        title: "Trigger Failed",
+                        onClose: function () {
+                            oModel.refresh();
+                        }
+                    }
                 );
-                oContext.refresh();
             });
         }
     });
