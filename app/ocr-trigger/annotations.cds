@@ -1,17 +1,6 @@
 using OCRService as service from '../../srv/ocr-service';
 
 // ============================================================
-// SideEffects - triggerLog sonrası UI refresh
-// ============================================================
-annotate service.OCRLogs with @(
-    Common.SideEffects #triggerLogEffect : {
-        $Type            : 'Common.SideEffectsType',
-        SourceActions    : ['triggerLog'],
-        TargetProperties : ['Status', 'SalesOrderNumber', 'ErrorMessage', 'MissingBarcodes', 'ItemCount', 'UpdatedAt']
-    }
-);
-
-// ============================================================
 // Capabilities - OCRLogs
 // ============================================================
 annotate service.OCRLogs with @(
@@ -164,12 +153,6 @@ annotate service.OCRLogs with @(
             $Type : 'UI.DataField',
             Value : CreatedAt,
             Label : 'Created At'
-        },
-        {
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Trigger',
-            Action : 'OCRService.triggerLog',
-            Inline : true
         }
     ]
 );
@@ -364,15 +347,7 @@ annotate service.OCRLogs with @(
     // ============================================================
     // Object Page - Identification (Header Action Buttons)
     // ============================================================
-    UI.Identification: [
-        {
-
-
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Trigger',
-            Action : 'OCRService.triggerLog'
-        }
-    ]
+    UI.Identification: []
 );
 
 // ============================================================

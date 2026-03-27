@@ -251,27 +251,22 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     return req.data;
 });
 
-    await super.init();
-
     // ============================================================
-    // triggerLog - Bound action on OCRLogs
+    // triggerLog - Unbound action (called via fetch API from UI)
     // ============================================================
-    this.on('triggerLog', 'OCRLogs', async (req) => {
-        var uuid = req.params?.[0]?.Uuid || req.params?.[0];
-        console.log('triggerLog called: uuid=' + uuid + ' params=' + JSON.stringify(req.params));
+    this.on('triggerLog', async (req) => {
+        var uuid = req.data.uuid;
+        console.log('triggerLog called: uuid=' + uuid);
         try {
             if (!uuid) {
-                req.error(400, 'UUID is required');
-                return;
+                return { success: false, message: 'UUID is required', salesOrder: '' };
             }
             var logEntry = await s4GetPOLog(uuid);
             if (!logEntry) {
-                req.error(404, 'POLog not found: ' + uuid);
-                return;
+                return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
             }
             console.log('triggerLog: processName=' + logEntry.processName);
 
-            // Call lookupShipToAndSalesArea directly (not via this.send - fails in $batch context)
             var stsaResult = await _lookupShipToAndSalesArea(logEntry.processName);
             var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
             var minData = {
@@ -290,19 +285,16 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             await autoUpdatePOLog(uuid, result.success?'SUCCESS':'FAILED',
                 result.salesOrderNumber||'', result.success?'':(result.message||''),
                 result.itemCount||0, result.missingBarcodes||'');
-            if (result.success) {
-                req.info('Sales Order ' + result.salesOrderNumber + ' created successfully');
-            } else {
-                req.error(422, result.message || 'Sales order creation failed');
-            }
             return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
         } catch (e) {
             console.error('triggerLog error: ' + e.message);
             console.error('triggerLog stack: ' + e.stack);
             try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch (e2) {}
-            req.error(500, 'Trigger failed: ' + e.message);
+            return { success: false, message: e.message, salesOrder: '' };
         }
     });
+
+    await super.init();
 
     // ============================================================
     // Bound retrigger action (Object Page butonu) - backward compat
