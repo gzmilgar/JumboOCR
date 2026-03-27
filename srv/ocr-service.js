@@ -258,12 +258,21 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     // ============================================================
     this.on('triggerLog', 'OCRLogs', async (req) => {
         var uuid = req.params?.[0]?.Uuid || req.params?.[0];
-        console.log('triggerLog called: uuid=' + uuid);
+        console.log('triggerLog called: uuid=' + uuid + ' params=' + JSON.stringify(req.params));
         try {
-            if (!uuid) return { success: false, message: 'UUID is required', salesOrder: '' };
+            if (!uuid) {
+                req.error(400, 'UUID is required');
+                return;
+            }
             var logEntry = await s4GetPOLog(uuid);
-            if (!logEntry) return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
-            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
+            if (!logEntry) {
+                req.error(404, 'POLog not found: ' + uuid);
+                return;
+            }
+            console.log('triggerLog: processName=' + logEntry.processName);
+
+            // Call lookupShipToAndSalesArea directly (not via this.send - fails in $batch context)
+            var stsaResult = await _lookupShipToAndSalesArea(logEntry.processName);
             var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
             var minData = {
                 purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
@@ -281,11 +290,17 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             await autoUpdatePOLog(uuid, result.success?'SUCCESS':'FAILED',
                 result.salesOrderNumber||'', result.success?'':(result.message||''),
                 result.itemCount||0, result.missingBarcodes||'');
+            if (result.success) {
+                req.info('Sales Order ' + result.salesOrderNumber + ' created successfully');
+            } else {
+                req.error(422, result.message || 'Sales order creation failed');
+            }
             return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
         } catch (e) {
             console.error('triggerLog error: ' + e.message);
+            console.error('triggerLog stack: ' + e.stack);
             try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch (e2) {}
-            return { success: false, message: e.message, salesOrder: '' };
+            req.error(500, 'Trigger failed: ' + e.message);
         }
     });
 
@@ -729,6 +744,54 @@ this.on('updatePOLogData', async (req) => {
         return { success: false, message: e.message };
     }
 });
+    // ============================================================
+    // INTERNAL: _lookupShipToAndSalesArea (direct call, no this.send)
+    // ============================================================
+    async function _lookupShipToAndSalesArea(ocrCompany) {
+        try {
+            console.log('=== _lookupShipToAndSalesArea called: ' + ocrCompany + ' ===');
+            if (!ocrCompany) {
+                throw new Error('ocrCompany parameter is required');
+            }
+
+            var basePath = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
+            var url = basePath + "/Root"
+                + "?$expand=_ShipToPartner($filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + ")"
+                + ",_SalesAreaMap"
+                + "&$format=json";
+
+            var response = await executeHttpRequest(
+                { destinationName: 'QS4_HTTPS' },
+                { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+            );
+
+            var results = response.data?.value || [];
+            var shipToResults = [];
+            var salesAreaResults = [];
+            results.forEach(function (item) {
+                if (item._ShipToPartner) shipToResults = shipToResults.concat(item._ShipToPartner);
+                if (item._SalesAreaMap) salesAreaResults = salesAreaResults.concat(item._SalesAreaMap);
+            });
+
+            console.log('_lookupShipToAndSalesArea: ShipTo=' + shipToResults.length + ' SalesArea=' + salesAreaResults.length);
+
+            return {
+                shipToPartners: JSON.stringify(shipToResults),
+                salesAreaMap: JSON.stringify(salesAreaResults),
+                success: shipToResults.length > 0 || salesAreaResults.length > 0,
+                message: 'ShipTo: ' + shipToResults.length + ', SalesArea: ' + salesAreaResults.length
+            };
+        } catch (error) {
+            console.error('_lookupShipToAndSalesArea Error: ' + error.message);
+            return {
+                shipToPartners: '[]',
+                salesAreaMap: '[]',
+                success: false,
+                message: 'Failed: ' + (error.response?.data?.error?.message?.value || error.message)
+            };
+        }
+    }
+
     // ============================================================
     // INTERNAL: _processSalesOrder
     // ============================================================
