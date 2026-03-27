@@ -198,7 +198,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     const iNo = req.params?.[0]?.ItemNumber;
     const d = req.data;
     try {
-        var sapUuid = hId;
+        var sapUuid = toSapUuid(hId);
         await s4Patch("OCRLogItem(HeaderId=guid'" + sapUuid + "',ItemNumber='" + iNo + "')", {
             Barcode:   d.Barcode,
             Quantity:  d.Quantity,
@@ -852,51 +852,89 @@ async function s4GetPOLog(uuid) {
         );
     }
 
+    
 async function s4Patch(entityWithKey, body) {
-    // ADIM 1: CSRF token al
-    const tokenResp = await executeHttpRequest(
-        { destinationName: 'QS4_HTTPS' },
-        {
-            method: 'GET',
-            url: OCR_BASE + '$metadata',
-            headers: {
-                'x-csrf-token': 'Fetch',
-                'Accept': 'application/xml'
-            },
-            timeout: 30000
+    const { getDestination } = require('@sap-cloud-sdk/connectivity');
+    const axios = require('axios');
+    const https = require('https');
+
+    // Destination'dan bilgileri al
+    const dest = await getDestination({ destinationName: 'QS4_HTTPS' });
+    const baseUrl = dest.url;
+
+    // Basic Auth oluştur
+    const auth = 'Basic ' + Buffer.from(
+        dest.username + ':' + (dest.password || '')
+    ).toString('base64');
+
+    console.log('s4Patch: baseUrl=' + baseUrl);
+    console.log('s4Patch: username=' + dest.username);
+
+    // Cookie jar - aynı session için
+    const jar = {};
+
+    const instance = axios.create({
+        baseURL: baseUrl,
+        httpsAgent: new https.Agent({ rejectUnauthorized: false })
+    });
+
+    // Response interceptor - cookie'leri topla
+    instance.interceptors.response.use(resp => {
+        const setCookie = resp.headers['set-cookie'];
+        if (setCookie) {
+            const arr = Array.isArray(setCookie) ? setCookie : [setCookie];
+            arr.forEach(c => {
+                const kv = c.split(';')[0];
+                const eqIdx = kv.indexOf('=');
+                if (eqIdx > 0) {
+                    const k = kv.substring(0, eqIdx).trim();
+                    const v = kv.substring(eqIdx + 1).trim();
+                    jar[k] = v;
+                }
+            });
         }
-    );
+        return resp;
+    });
+
+    const getCookieHeader = () =>
+        Object.entries(jar).map(([k, v]) => k + '=' + v).join('; ');
+
+    // ADIM 1: CSRF Token al ($metadata endpoint)
+    console.log('s4Patch: Fetching CSRF token...');
+    const tokenResp = await instance.get(OCR_BASE + '$metadata', {
+        headers: {
+            'x-csrf-token': 'Fetch',
+            'Authorization': auth,
+            'Accept': 'application/xml'
+        }
+    });
 
     const csrfToken = tokenResp.headers['x-csrf-token'];
-    const setCookie = tokenResp.headers['set-cookie'];
+    console.log('s4Patch: CSRF Token=' + csrfToken);
+    console.log('s4Patch: Cookie Jar=' + getCookieHeader());
 
-    let cookie = '';
-    if (setCookie) {
-        const arr = Array.isArray(setCookie) ? setCookie : [setCookie];
-        cookie = arr.map(c => c.split(';')[0]).join('; ');
+    if (!csrfToken || csrfToken === 'Required' || csrfToken === 'Fetch') {
+        throw new Error('CSRF token alinamadi: ' + csrfToken);
     }
 
-    console.log('s4Patch: csrfToken=' + csrfToken);
-    console.log('s4Patch: cookie=' + cookie);
-    console.log('s4Patch: PATCH → ' + OCR_BASE + entityWithKey);
-
-    // ADIM 2: PATCH - if-match: * eklendi!
-    return await executeHttpRequest(
-        { destinationName: 'QS4_HTTPS' },
+    // ADIM 2: AYNI SESSION ile PATCH
+    console.log('s4Patch: Sending PATCH to ' + OCR_BASE + entityWithKey);
+    const patchResp = await instance.patch(
+        OCR_BASE + entityWithKey,
+        body,
         {
-            method: 'PATCH',
-            url: OCR_BASE + entityWithKey,
-            data: body,
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
+                'Authorization': auth,
                 'x-csrf-token': csrfToken,
-                'if-match': '*',
-                ...(cookie && { 'Cookie': cookie })
-            },
-            timeout: 30000
+                'Cookie': getCookieHeader()
+            }
         }
     );
+
+    console.log('s4Patch: response status=' + patchResp.status);
+    return patchResp;
 }
 
     // ============================================================
