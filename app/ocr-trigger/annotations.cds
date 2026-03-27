@@ -120,6 +120,12 @@ annotate service.OCRLogs with @(
 // List Report - Table Columns
 // ============================================================
 annotate service.OCRLogs with @(
+    UI.DataPoint #StatusDP : {
+        Value       : Status,
+        Criticality : StatusCriticality,
+        Title       : 'Status'
+    },
+
     UI.LineItem: [
         {
 
@@ -141,10 +147,9 @@ annotate service.OCRLogs with @(
             Label : 'PO Number'
         },
         {
-            $Type       : 'UI.DataField',
-            Value       : Status,
-            Label       : 'Status',
-            Criticality : StatusCriticality
+            $Type  : 'UI.DataFieldForAnnotation',
+            Target : '@UI.DataPoint#StatusDP',
+            Label  : 'Status'
         },
         {
             $Type : 'UI.DataField',
@@ -182,10 +187,9 @@ annotate service.OCRLogs with @(
         Label : 'Status',
         Data  : [
             {
-                $Type       : 'UI.DataField',
-                Value       : Status,
-                Label       : 'Status',
-                Criticality : StatusCriticality
+                $Type  : 'UI.DataFieldForAnnotation',
+                Target : '@UI.DataPoint#StatusDP',
+                Label  : 'Status'
             },
             {
 
