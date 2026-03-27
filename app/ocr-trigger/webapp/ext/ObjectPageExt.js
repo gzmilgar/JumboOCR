@@ -27,6 +27,15 @@ sap.ui.define([
             var oModel = oBindingContext.getModel();
             var oData = oBindingContext.getObject();
 
+            // Sales Order zaten oluşturulmuşsa edit'e izin verme
+            if (oData.SalesOrderNumber) {
+                sap.m.MessageBox.warning(
+                    "Sales Order " + oData.SalesOrderNumber + " already created. Editing is not allowed.",
+                    { title: "Edit Not Allowed" }
+                );
+                return;
+            }
+
             var oListBinding = oModel.bindList(oBindingContext.getPath() + "/Items");
             oListBinding.requestContexts(0, 9999).then(function (aItemContexts) {
                 var aItems = aItemContexts.map(function (ctx) {

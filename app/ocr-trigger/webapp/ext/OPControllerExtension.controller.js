@@ -96,6 +96,15 @@ sap.ui.define([
                 return;
             }
 
+            // Sales Order zaten oluşturulmuşsa trigger'a izin verme
+            if (oData.SalesOrderNumber) {
+                MessageBox.warning(
+                    "Sales Order " + oData.SalesOrderNumber + " already created. Triggering again is not allowed.",
+                    { title: "Trigger Not Allowed" }
+                );
+                return;
+            }
+
             MessageBox.confirm(
                 "Are you sure you want to trigger Sales Order creation for PO: " + (oData.PurchaseOrder || sUuid) + "?",
                 {
