@@ -944,17 +944,28 @@ async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, ite
     if (!uuid) return;
     try {
         var now = new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'');
+        // Truncate and sanitize error message for S/4HANA field length
+        var safeErrorMsg = String(errorMessage || '').substring(0, 220);
+        var safeSoNumber = String(salesOrderNumber || '').substring(0, 40);
+        var safeMissing  = String(missingBarcodes || '').substring(0, 220);
+
+        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status +
+            ' SO=' + safeSoNumber + ' errorMsg=' + safeErrorMsg.substring(0, 80));
+
         await s4Patch("OCRLogHead(" + uuid + ")", {
             Status:           status           || '',
-            SalesOrderNumber: salesOrderNumber || '',
-            ErrorMessage:     errorMessage     || '',
+            SalesOrderNumber: safeSoNumber,
+            ErrorMessage:     safeErrorMsg,
             ItemCount:        itemCount        || 0,
-            MissingBarcodes:  missingBarcodes  || '',
+            MissingBarcodes:  safeMissing,
             UpdatedAt:        now
         });
-        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status);
+        console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
     } catch (e) {
-        console.error('autoUpdatePOLog error: ' + e.message);
+        console.error('autoUpdatePOLog PATCH FAILED: ' + e.message);
+        if (e.response?.data) {
+            console.error('autoUpdatePOLog response: ' + JSON.stringify(e.response.data).substring(0, 500));
+        }
     }
 }
 
