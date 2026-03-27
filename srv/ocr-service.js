@@ -21,7 +21,33 @@ module.exports = class extends cds.ApplicationService { async init() {
     // ============================================================
     this.on('READ', 'OCRLogs', async (req) => {
         try {
-            const uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
+            // Extract UUID from multiple possible locations in CAP request
+            var uuid = null;
+            // 1. req.params (most reliable for single-entity reads)
+            if (req.params && req.params.length > 0) {
+                var p = req.params[0];
+                uuid = (typeof p === 'object') ? (p.Uuid || p.uuid) : p;
+            }
+            // 2. req.query.SELECT.from.ref (entity key in path)
+            if (!uuid && req.query?.SELECT?.from?.ref) {
+                var refs = req.query.SELECT.from.ref;
+                for (var i = 0; i < refs.length; i++) {
+                    if (refs[i]?.where) {
+                        uuid = extractKeyFromWhere(refs[i].where, 'Uuid');
+                        if (uuid) break;
+                    }
+                }
+            }
+            // 3. req.query.SELECT.where (filter-based)
+            if (!uuid) {
+                uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
+            }
+            // 4. req.data (fallback)
+            if (!uuid && req.data?.Uuid) {
+                uuid = req.data.Uuid;
+            }
+
+            console.log('OCRLogs READ: uuid=' + uuid);
 if (uuid) {
     const r = await s4GetPOLog(uuid);
     return [{
