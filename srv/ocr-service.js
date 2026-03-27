@@ -25,7 +25,7 @@ if (uuid) {
         VendorAdress: r.vendorAdress || '', Status: r.status || '',
         SalesOrderNumber: r.salesOrderNumber || '', ErrorMessage: r.errorMessage || '',
         MissingBarcodes: r.missingBarcodes || '', ItemCount: r.itemCount || 0,
-        CreatedAt: r.createdAt || '', UpdatedAt: '',
+        CreatedAt: r.createdAt || '', UpdatedAt: r.updatedAt || '',
         Items: (r.items || []).map(item => ({
             HeaderId: r.uuid || '',
             ItemNumber: item.ItemNumber || '',
@@ -239,7 +239,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     const d = req.data;
     try {
         var sapUuid = hId;
-        await s4Patch("OCRLogItem(HeaderId=guid'" + sapUuid + "',ItemNumber='" + iNo + "')", {
+        await s4Patch("OCRLogItem(HeaderId=" + sapUuid + ",ItemNumber='" + iNo + "')", {
             Barcode:   d.Barcode,
             Quantity:  d.Quantity,
             UnitPrice: d.UnitPrice,
