@@ -969,7 +969,7 @@ this.on('updatePOLogData', async (req) => {
             return uuid;
         } catch (e) {
             console.error('autoSavePOLog error: ' + e.message);
-            return null;
+            return uuid;
         }
     }
 
