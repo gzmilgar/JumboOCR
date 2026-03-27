@@ -289,8 +289,21 @@ this.on('UPDATE', 'OCRItems', async (req) => {
         } catch (e) {
             console.error('triggerLog error: ' + e.message);
             console.error('triggerLog stack: ' + e.stack);
-            try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch (e2) {}
-            return { success: false, message: e.message, salesOrder: '' };
+            // Extract detailed S/4HANA error message
+            var errorMsg = e.message || 'Unknown error';
+            if (e.response?.data?.error?.message?.value) {
+                errorMsg = e.response.data.error.message.value;
+            } else if (e.response?.data?.error?.innererror?.errordetails) {
+                errorMsg = e.response.data.error.innererror.errordetails
+                    .map(function (d) { return d.message; }).join('; ');
+            } else if (e.response?.data?.error?.message) {
+                errorMsg = typeof e.response.data.error.message === 'string'
+                    ? e.response.data.error.message
+                    : JSON.stringify(e.response.data.error.message);
+            }
+            console.error('triggerLog errorMsg: ' + errorMsg);
+            try { await autoUpdatePOLog(uuid, 'FAILED', '', errorMsg, 0, ''); } catch (e2) {}
+            return { success: false, message: errorMsg, salesOrder: '' };
         }
     });
 

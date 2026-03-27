@@ -134,6 +134,27 @@ sap.ui.define([
                 });
             })
             .then(function (response) {
+                if (!response.ok) {
+                    // HTTP error - try to extract OData error message
+                    return response.json().then(function (errData) {
+                        var errMsg = "Unknown error (HTTP " + response.status + ")";
+                        if (errData?.error?.message?.value) {
+                            errMsg = errData.error.message.value;
+                        } else if (errData?.error?.message) {
+                            errMsg = typeof errData.error.message === "string"
+                                ? errData.error.message
+                                : JSON.stringify(errData.error.message);
+                        } else if (errData?.message) {
+                            errMsg = errData.message;
+                        }
+                        throw new Error(errMsg);
+                    }).catch(function (parseErr) {
+                        if (parseErr.message && parseErr.message !== "Unknown error (HTTP " + response.status + ")") {
+                            throw parseErr;
+                        }
+                        throw new Error("HTTP " + response.status + ": " + response.statusText);
+                    });
+                }
                 return response.json();
             })
             .then(function (result) {
@@ -145,7 +166,6 @@ sap.ui.define([
                         {
                             title: "Success",
                             onClose: function () {
-                                // Refresh the page data
                                 oContext.refresh();
                             }
                         }
@@ -155,16 +175,16 @@ sap.ui.define([
                         result.message || "Sales order creation failed",
                         { title: "Trigger Failed" }
                     );
-                    // Refresh to show updated status
                     oContext.refresh();
                 }
             })
             .catch(function (error) {
                 sap.ui.core.BusyIndicator.hide();
                 MessageBox.error(
-                    "Request failed: " + error.message,
-                    { title: "Error" }
+                    error.message || "Request failed",
+                    { title: "Trigger Failed" }
                 );
+                oContext.refresh();
             });
         }
     });
