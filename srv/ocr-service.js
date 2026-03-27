@@ -979,7 +979,6 @@ this.on('updatePOLogData', async (req) => {
 async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, itemCount, missingBarcodes) {
     if (!uuid) return;
     try {
-        var now = new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'');
         // Truncate fields to prevent S/4HANA PATCH failure due to field length
         var safeErrorMsg = String(errorMessage || '').substring(0, 220);
         var safeSoNumber = String(salesOrderNumber || '').substring(0, 40);
@@ -993,14 +992,16 @@ async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, ite
             SalesOrderNumber: safeSoNumber,
             ErrorMessage:     safeErrorMsg,
             ItemCount:        itemCount        || 0,
-            MissingBarcodes:  safeMissing,
-            UpdatedAt:        now
+            MissingBarcodes:  safeMissing
         });
         console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
     } catch (e) {
         console.error('autoUpdatePOLog PATCH FAILED: ' + e.message);
-        if (e.response?.data) {
-            console.error('autoUpdatePOLog response: ' + JSON.stringify(e.response.data).substring(0, 500));
+        try {
+            var errDetail = e.response?.data ? JSON.stringify(e.response.data) : 'no response data';
+            console.error('autoUpdatePOLog response: ' + errDetail.substring(0, 1000));
+        } catch (e2) {
+            console.error('autoUpdatePOLog response: could not stringify - ' + (e.response?.status || 'unknown status'));
         }
     }
 }
