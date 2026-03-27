@@ -148,14 +148,14 @@ sap.ui.define([
             .then(function (tokenResponse) {
                 var sCsrfToken = tokenResponse.headers.get("X-Csrf-Token");
 
-                // Step 2: Call triggerLog action
-                return fetch(sServiceUrl + "triggerLog", {
+                // Step 2: Call triggerLog bound action on OCRLogs entity
+                return fetch(sServiceUrl + "OCRLogs(" + sUuid + ")/OCRService.triggerLog", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
                         "X-Csrf-Token": sCsrfToken
                     },
-                    body: JSON.stringify({ uuid: sUuid })
+                    body: JSON.stringify({})
                 });
             })
             .then(function (response) {

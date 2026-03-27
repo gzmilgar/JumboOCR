@@ -60,6 +60,9 @@ annotate service.OCRLogs with {
     PdfName          @Core.Computed: true;
     MailSubject      @Core.Computed: true;
     Status           @Core.Computed: true;
+    StatusCriticality @Core.Computed: true
+                     @UI.Hidden: true
+                     @UI.HiddenFilter: true;
     SalesOrderNumber @Core.Computed: true;
     ErrorMessage     @Core.Computed: true;
     MissingBarcodes  @Core.Computed: true;
@@ -138,13 +141,12 @@ annotate service.OCRLogs with @(
             Label : 'PO Number'
         },
         {
-            $Type : 'UI.DataField',
-            Value : Status,
-            Label : 'Status'
+            $Type       : 'UI.DataField',
+            Value       : Status,
+            Label       : 'Status',
+            Criticality : StatusCriticality
         },
         {
-
-
             $Type : 'UI.DataField',
             Value : SalesOrderNumber,
             Label : 'Sales Order'
@@ -182,15 +184,14 @@ annotate service.OCRLogs with @(
 annotate service.OCRLogs with @(
 
     UI.FieldGroup #Status: {
-
-
         $Type : 'UI.FieldGroupType',
         Label : 'Status',
         Data  : [
             {
-                $Type : 'UI.DataField',
-                Value : Status,
-                Label : 'Status'
+                $Type       : 'UI.DataField',
+                Value       : Status,
+                Label       : 'Status',
+                Criticality : StatusCriticality
             },
             {
 

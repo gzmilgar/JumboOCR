@@ -119,6 +119,7 @@ service OCRService {
             TaxId            : String;
             VendorNo         : String;
             Status           : String;
+            StatusCriticality : Integer;
             SalesOrderNumber : String;
             ErrorMessage     : String;
             MissingBarcodes  : String;

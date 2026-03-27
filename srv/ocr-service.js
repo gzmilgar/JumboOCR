@@ -4,6 +4,16 @@ const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 var OCR_BASE = '/sap/opu/odata4/sap/zsdocr_sb_log_o4/srvd/sap/zsd_ocr_log_srv/0001/';
 
+function statusCriticality(status) {
+    switch ((status || '').toUpperCase()) {
+        case 'SUCCESS':  return 3; // Positive (green)
+        case 'FAILED':   return 1; // Negative (red)
+        case 'RETRYING': return 2; // Critical (orange)
+        case 'PENDING':  return 2; // Critical (orange)
+        default:         return 0; // None (neutral)
+    }
+}
+
 module.exports = class extends cds.ApplicationService { async init() {
 
     // ============================================================
@@ -23,6 +33,7 @@ if (uuid) {
         GrossAmount: parseFloat(r.grossAmount) || 0, TotalVat: r.totalVat || '',
         Discount: parseFloat(r.discount) || 0, DeliveryAdress: r.deliveryAdress || '',
         VendorAdress: r.vendorAdress || '', Status: r.status || '',
+        StatusCriticality: statusCriticality(r.status),
         SalesOrderNumber: r.salesOrderNumber || '', ErrorMessage: r.errorMessage || '',
         MissingBarcodes: r.missingBarcodes || '', ItemCount: r.itemCount || 0,
         CreatedAt: r.createdAt || '', UpdatedAt: r.updatedAt || '',
@@ -54,6 +65,7 @@ if (uuid) {
                     GrossAmount: r.GrossAmount || 0, TotalVat: r.TotalVat || '',
                     Discount: r.Discount || 0, DeliveryAdress: r.DeliveryAdress || '',
                     VendorAdress: r.VendorAdress || '', Status: r.Status || '',
+                    StatusCriticality: statusCriticality(r.Status),
                     SalesOrderNumber: r.SalesOrderNumber || '', ErrorMessage: r.ErrorMessage || '',
                     MissingBarcodes: r.MissingBarcodes || '', ItemCount: r.ItemCount || 0,
                     CreatedAt: r.CreatedAt || '', UpdatedAt: r.UpdatedAt || ''
@@ -284,8 +296,22 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
         } catch (e) {
             console.error('triggerLog error: ' + e.message);
-            try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch (e2) {}
-            return { success: false, message: e.message, salesOrder: '' };
+            console.error('triggerLog stack: ' + e.stack);
+            // Extract detailed S/4HANA error message
+            var errorMsg = e.message || 'Unknown error';
+            if (e.response?.data?.error?.message?.value) {
+                errorMsg = e.response.data.error.message.value;
+            } else if (e.response?.data?.error?.innererror?.errordetails) {
+                errorMsg = e.response.data.error.innererror.errordetails
+                    .map(function (d) { return d.message; }).join('; ');
+            } else if (e.response?.data?.error?.message) {
+                errorMsg = typeof e.response.data.error.message === 'string'
+                    ? e.response.data.error.message
+                    : JSON.stringify(e.response.data.error.message);
+            }
+            console.error('triggerLog errorMsg: ' + errorMsg);
+            try { await autoUpdatePOLog(uuid, 'FAILED', '', errorMsg, 0, ''); } catch (e2) {}
+            return { success: false, message: errorMsg, salesOrder: '' };
         }
     });
 
@@ -876,17 +902,28 @@ async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, ite
     if (!uuid) return;
     try {
         var now = new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'');
+        // Truncate fields to prevent S/4HANA PATCH failure due to field length
+        var safeErrorMsg = String(errorMessage || '').substring(0, 220);
+        var safeSoNumber = String(salesOrderNumber || '').substring(0, 40);
+        var safeMissing  = String(missingBarcodes || '').substring(0, 220);
+
+        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status +
+            ' SO=' + safeSoNumber + ' errorMsg=' + safeErrorMsg.substring(0, 80));
+
         await s4Patch("OCRLogHead(" + uuid + ")", {
             Status:           status           || '',
-            SalesOrderNumber: salesOrderNumber || '',
-            ErrorMessage:     errorMessage     || '',
+            SalesOrderNumber: safeSoNumber,
+            ErrorMessage:     safeErrorMsg,
             ItemCount:        itemCount        || 0,
-            MissingBarcodes:  missingBarcodes  || '',
+            MissingBarcodes:  safeMissing,
             UpdatedAt:        now
         });
-        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status);
+        console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
     } catch (e) {
-        console.error('autoUpdatePOLog error: ' + e.message);
+        console.error('autoUpdatePOLog PATCH FAILED: ' + e.message);
+        if (e.response?.data) {
+            console.error('autoUpdatePOLog response: ' + JSON.stringify(e.response.data).substring(0, 500));
+        }
     }
 }
 
