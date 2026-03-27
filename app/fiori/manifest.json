@@ -96,6 +96,15 @@
 		"resources": {
 			"css": []
 		},
+		"extends": {
+			"extensions": {
+				"sap.ui.controllerExtensions": {
+					"sap.fe.templates.ObjectPage.ObjectPageController": {
+						"controllerName": "com.jumbo.ocr.ocrtrigger.ext.OPControllerExtension"
+					}
+				}
+			}
+		},
 		"routing": {
 			"config": {},
 			"routes": [
@@ -144,18 +153,6 @@
 						"settings": {
 							"contextPath": "/OCRLogs",
 							"editableHeaderContent": false,
-							"content": {
-								"header": {
-									"actions": {
-										"editDetails": {
-											"press": "com.jumbo.ocr.ocrtrigger.ext.ObjectPageExt.onEditPress",
-											"visible": true,
-											"enabled": true,
-											"text": "Edit"
-										}
-									}
-								}
-							},
 							"navigation": {},
 							"controlConfiguration": {
 								"Items/@com.sap.vocabularies.UI.v1.LineItem": {
