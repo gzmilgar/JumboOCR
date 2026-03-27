@@ -61,7 +61,6 @@ annotate service.OCRLogs with {
     MailSubject      @Core.Computed: true;
     Status           @Core.Computed: true;
     StatusCriticality @Core.Computed: true
-                     @UI.Hidden: true
                      @UI.HiddenFilter: true;
     SalesOrderNumber @Core.Computed: true;
     ErrorMessage     @Core.Computed: true;
