@@ -15,6 +15,12 @@ sap.ui.define([
                     this._createdSalesOrder = null;
 
                     if (this._buttonsAdded) {
+                        // Update existing buttons' binding context for the new record
+                        var oView = this.base.getView();
+                        var oEditBtn = oView.byId(oView.getId() + "--customEditBtn");
+                        var oTriggerBtn = oView.byId(oView.getId() + "--customTriggerBtn");
+                        if (oEditBtn) oEditBtn.setBindingContext(oBindingContext);
+                        if (oTriggerBtn) oTriggerBtn.setBindingContext(oBindingContext);
                         return;
                     }
 
