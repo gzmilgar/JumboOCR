@@ -22,14 +22,6 @@ service OCRService {
         missingBarcodes  : String;
     };
 
-    action retryPOLog(uuid : String) returns {
-        salesOrderNumber : String;
-        message          : String;
-        success          : Boolean;
-        itemCount        : Integer;
-        missingBarcodes  : String;
-    };
-
     action getPOLogs(statusFilter : String) returns array of {
         uuid             : String;
         processName      : String;

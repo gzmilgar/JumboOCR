@@ -21,33 +21,7 @@ module.exports = class extends cds.ApplicationService { async init() {
     // ============================================================
     this.on('READ', 'OCRLogs', async (req) => {
         try {
-            // Extract UUID from multiple possible locations in CAP request
-            var uuid = null;
-            // 1. req.params (most reliable for single-entity reads)
-            if (req.params && req.params.length > 0) {
-                var p = req.params[0];
-                uuid = (typeof p === 'object') ? (p.Uuid || p.uuid) : p;
-            }
-            // 2. req.query.SELECT.from.ref (entity key in path)
-            if (!uuid && req.query?.SELECT?.from?.ref) {
-                var refs = req.query.SELECT.from.ref;
-                for (var i = 0; i < refs.length; i++) {
-                    if (refs[i]?.where) {
-                        uuid = extractKeyFromWhere(refs[i].where, 'Uuid');
-                        if (uuid) break;
-                    }
-                }
-            }
-            // 3. req.query.SELECT.where (filter-based)
-            if (!uuid) {
-                uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
-            }
-            // 4. req.data (fallback)
-            if (!uuid && req.data?.Uuid) {
-                uuid = req.data.Uuid;
-            }
-
-            console.log('OCRLogs READ: uuid=' + uuid);
+            const uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
 if (uuid) {
     const r = await s4GetPOLog(uuid);
     return [{
@@ -77,16 +51,9 @@ if (uuid) {
     }];
 }
  else {
-                // Build $filter from CDS query WHERE clause
-                var filterStr = buildODataFilter(req.query?.SELECT?.where);
-                var url = OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200';
-                if (filterStr) {
-                    url += '&$filter=' + encodeURIComponent(filterStr);
-                    console.log('OCRLogs READ: $filter=' + filterStr);
-                }
                 const response = await executeHttpRequest(
                     { destinationName: 'QS4_HTTPS' },
-                    { method: 'GET', url: url,
+                    { method: 'GET', url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
                       headers: { 'Accept': 'application/json' }, timeout: 30000 }
                 );
                 return (response.data?.value || []).map(r => ({
@@ -296,23 +263,24 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     return req.data;
 });
 
-    await super.init();
-
     // ============================================================
     // triggerLog - Bound action on OCRLogs
     // ============================================================
     this.on('triggerLog', 'OCRLogs', async (req) => {
         var uuid = req.params?.[0]?.Uuid || req.params?.[0];
-        console.log('triggerLog called: uuid=' + uuid);
+        console.log('=== triggerLog called: uuid=' + uuid + ' ===');
+        console.log('triggerLog req.params:', JSON.stringify(req.params));
         try {
             if (!uuid) return { success: false, message: 'UUID is required', salesOrder: '' };
             var logEntry = await s4GetPOLog(uuid);
             if (!logEntry) {
+                console.log('triggerLog: POLog not found for uuid=' + uuid);
                 return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
             }
-            console.log('triggerLog: processName=' + logEntry.processName);
+            console.log('triggerLog: processName=' + logEntry.processName + ' PO=' + logEntry.purchaseOrder + ' items=' + logEntry.items.length);
 
             var stsaResult = await _lookupShipToAndSalesArea(logEntry.processName);
+            console.log('triggerLog: STSA success=' + stsaResult.success + ' msg=' + stsaResult.message);
             var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
             var minData = {
                 purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
@@ -326,11 +294,13 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             };
             var data = wrapForBuildPayload(minData);
             await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+            console.log('triggerLog: calling _processSalesOrder...');
             var result = await _processSalesOrder(data, stsa, logEntry.processName);
+            console.log('triggerLog: result success=' + result.success + ' SO=' + result.salesOrderNumber + ' msg=' + result.message);
             await autoUpdatePOLog(uuid, result.success?'SUCCESS':'FAILED',
                 result.salesOrderNumber||'', result.success?'':(result.message||''),
                 result.itemCount||0, result.missingBarcodes||'');
-            return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
+            return { success: result.success, message: result.message||'Sales order creation failed', salesOrder: result.salesOrderNumber||'' };
         } catch (e) {
             console.error('triggerLog error: ' + e.message);
             console.error('triggerLog stack: ' + e.stack);
@@ -349,41 +319,6 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             console.error('triggerLog errorMsg: ' + errorMsg);
             try { await autoUpdatePOLog(uuid, 'FAILED', '', errorMsg, 0, ''); } catch (e2) {}
             return { success: false, message: errorMsg, salesOrder: '' };
-        }
-    });
-
-    // ============================================================
-    // Bound retrigger action (Object Page butonu) - backward compat
-    // ============================================================
-    this.on('retrigger', 'OCRLogs', async (req) => {
-        const uuid = req.params?.[0]?.Uuid || req.params?.[0];
-        try {
-            var logEntry = await s4GetPOLog(uuid);
-            if (!logEntry) return { success: false, message: 'Not found: ' + uuid, salesOrder: '' };
-            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
-            var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
-            var minData = {
-                purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
-                documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
-                deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress,
-                taxId: logEntry.taxId,
-                lineItems: logEntry.items.map(function(i) {
-                    return { barcode: i.Barcode||'', quantity: String(i.Quantity||''),
-                             unitPrice: String(i.UnitPrice||''), itemNumber: i.ItemNumber||'',
-                             description: i.Description||'', materialNumber: i.MaterialNumber||'' };
-                })
-            };
-            var data = wrapForBuildPayload(minData);
-            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
-            var result = await _processSalesOrder(data, stsa, logEntry.processName);
-            await autoUpdatePOLog(uuid, result.success ? 'SUCCESS' : 'FAILED',
-                result.salesOrderNumber||'', result.success ? '' : (result.message||''),
-                result.itemCount||0, result.missingBarcodes||'');
-            return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
-        } catch (e) {
-            console.error('retrigger error:', e.message);
-            try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch(e2){}
-            return { success: false, message: e.message, salesOrder: '' };
         }
     });
 
@@ -498,25 +433,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 }
             }
 
-            // Log top-level keys of BPA data to understand structure
-            console.log('[' + processName + '] BPA data top-level keys=' + Object.keys(data).join(', '));
-            if (data.extraction) {
-                console.log('[' + processName + '] BPA data.extraction keys=' + Object.keys(data.extraction).join(', '));
-                // Some BPA versions wrap data in extraction property
-                if (data.extraction.headerFields && !data.headerFields) {
-                    data.headerFields = data.extraction.headerFields;
-                }
-                if (data.extraction.lineItemFields && !data.lineItemFields) {
-                    data.lineItemFields = data.extraction.lineItemFields;
-                }
-            }
-
             var minData = extractMinimalData(data);
-            console.log('[' + processName + '] minData: PO=' + minData.purchaseOrder +
-                ' vendor=' + (minData.vendorAdress || '').substring(0, 50) +
-                ' gross=' + minData.grossAmount +
-                ' net=' + minData.netAmount +
-                ' delivery=' + (minData.deliveryAdress || '').substring(0, 50));
             logUuid = await autoSavePOLog({
                 processName:    processName,
                 pdfName:        req.data.pdfName || '',
@@ -570,65 +487,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     });
 
     // ============================================================
-    // 3) retryPOLog
-    // ============================================================
-    this.on('retryPOLog', async (req) => {
-        var uuid = req.data.uuid;
-        console.log('=== retryPOLog called uuid=' + uuid + ' ===');
-        try {
-            var logEntry = await s4GetPOLog(uuid);
-            if (!logEntry) {
-                return { salesOrderNumber: null, message: 'POLog not found: ' + uuid, success: false, itemCount: 0, missingBarcodes: '' };
-            }
-
-            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
-            var stsa = {
-                shipToPartners: stsaResult.shipToPartners,
-                salesAreaMap:   stsaResult.salesAreaMap
-            };
-
-            var minData = {
-                purchaseOrder:  logEntry.purchaseOrder,
-                deliveryDate:   logEntry.deliveryDate,
-                documentDate:   logEntry.documentDate,
-                receiverId:     logEntry.receiverId,
-                deliveryAdress: logEntry.deliveryAdress,
-                vendorAdress:   logEntry.vendorAdress,
-                taxId:          logEntry.taxId,
-                lineItems: logEntry.items.map(function (i) {
-                    return {
-                        barcode:        i.Barcode || '',
-                        quantity:       String(i.Quantity || ''),
-                        unitPrice:      String(i.UnitPrice || ''),
-                        itemNumber:     i.ItemNumber || '',
-                        description:    i.Description || '',
-                        materialNumber: i.MaterialNumber || ''
-                    };
-                })
-            };
-            var data = wrapForBuildPayload(minData);
-
-            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
-            var result = await _processSalesOrder(data, stsa, logEntry.processName);
-            await autoUpdatePOLog(uuid,
-                result.success ? 'SUCCESS' : 'FAILED',
-                result.salesOrderNumber || '',
-                result.success ? '' : (result.message || ''),
-                result.itemCount || 0,
-                result.missingBarcodes || '');
-
-            console.log('retryPOLog: uuid=' + uuid + ' → success=' + result.success + ' SO=' + result.salesOrderNumber);
-            return result;
-
-        } catch (error) {
-            console.error('retryPOLog Error: ' + error.message);
-            try { await autoUpdatePOLog(uuid, 'FAILED', '', error.message, 0, ''); } catch (e2) { }
-            return { salesOrderNumber: null, message: 'Failed: ' + error.message, success: false, itemCount: 0, missingBarcodes: '' };
-        }
-    });
-
-    // ============================================================
-    // 4) getPOLogs
+    // 3) getPOLogs
     // ============================================================
     this.on('getPOLogs', async (req) => {
         try {
@@ -811,54 +670,6 @@ this.on('updatePOLogData', async (req) => {
     }
 });
     // ============================================================
-    // INTERNAL: _lookupShipToAndSalesArea (direct call, no this.send)
-    // ============================================================
-    async function _lookupShipToAndSalesArea(ocrCompany) {
-        try {
-            console.log('=== _lookupShipToAndSalesArea called: ' + ocrCompany + ' ===');
-            if (!ocrCompany) {
-                throw new Error('ocrCompany parameter is required');
-            }
-
-            var basePath = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
-            var url = basePath + "/Root"
-                + "?$expand=_ShipToPartner($filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + ")"
-                + ",_SalesAreaMap"
-                + "&$format=json";
-
-            var response = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
-            );
-
-            var results = response.data?.value || [];
-            var shipToResults = [];
-            var salesAreaResults = [];
-            results.forEach(function (item) {
-                if (item._ShipToPartner) shipToResults = shipToResults.concat(item._ShipToPartner);
-                if (item._SalesAreaMap) salesAreaResults = salesAreaResults.concat(item._SalesAreaMap);
-            });
-
-            console.log('_lookupShipToAndSalesArea: ShipTo=' + shipToResults.length + ' SalesArea=' + salesAreaResults.length);
-
-            return {
-                shipToPartners: JSON.stringify(shipToResults),
-                salesAreaMap: JSON.stringify(salesAreaResults),
-                success: shipToResults.length > 0 || salesAreaResults.length > 0,
-                message: 'ShipTo: ' + shipToResults.length + ', SalesArea: ' + salesAreaResults.length
-            };
-        } catch (error) {
-            console.error('_lookupShipToAndSalesArea Error: ' + error.message);
-            return {
-                shipToPartners: '[]',
-                salesAreaMap: '[]',
-                success: false,
-                message: 'Failed: ' + (error.response?.data?.error?.message?.value || error.message)
-            };
-        }
-    }
-
-    // ============================================================
     // INTERNAL: _processSalesOrder
     // ============================================================
     async function _processSalesOrder(data, stsa, processName) {
@@ -1004,30 +815,28 @@ this.on('updatePOLogData', async (req) => {
 async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, itemCount, missingBarcodes) {
     if (!uuid) return;
     try {
+        var now = new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'');
         // Truncate fields to prevent S/4HANA PATCH failure due to field length
         var safeErrorMsg = String(errorMessage || '').substring(0, 220);
         var safeSoNumber = String(salesOrderNumber || '').substring(0, 40);
         var safeMissing  = String(missingBarcodes || '').substring(0, 220);
 
-        var patchBody = {};
-        if (status)         patchBody.Status           = status;
-        if (safeSoNumber)   patchBody.SalesOrderNumber = safeSoNumber;
-        if (safeErrorMsg)   patchBody.ErrorMessage     = safeErrorMsg;
-        if (safeMissing)    patchBody.MissingBarcodes  = safeMissing;
+        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status +
+            ' SO=' + safeSoNumber + ' errorMsg=' + safeErrorMsg.substring(0, 80));
 
-        console.log('autoUpdatePOLog: uuid=' + uuid + ' patchBody=' + JSON.stringify(patchBody));
-
-        if (Object.keys(patchBody).length > 0) {
-            await s4Patch("OCRLogHead(" + uuid + ")", patchBody);
-            console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
-        }
+        await s4Patch("OCRLogHead(" + uuid + ")", {
+            Status:           status           || '',
+            SalesOrderNumber: safeSoNumber,
+            ErrorMessage:     safeErrorMsg,
+            ItemCount:        itemCount        || 0,
+            MissingBarcodes:  safeMissing,
+            UpdatedAt:        now
+        });
+        console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
     } catch (e) {
         console.error('autoUpdatePOLog PATCH FAILED: ' + e.message);
-        try {
-            var errDetail = e.response?.data ? JSON.stringify(e.response.data) : 'no response data';
-            console.error('autoUpdatePOLog response: ' + errDetail.substring(0, 1000));
-        } catch (e2) {
-            console.error('autoUpdatePOLog response: could not stringify - ' + (e.response?.status || 'unknown status'));
+        if (e.response?.data) {
+            console.error('autoUpdatePOLog response: ' + JSON.stringify(e.response.data).substring(0, 500));
         }
     }
 }
@@ -1063,6 +872,7 @@ async function s4GetPOLog(uuid) {
         discount:         String(r.Discount   || ''),
         deliveryAdress:   r.DeliveryAdress   || '',
         vendorAdress:     r.VendorAdress     || '',
+        taxId:            r.TaxId            || '',
         status:           r.Status           || '',
         salesOrderNumber: r.SalesOrderNumber || '',
         errorMessage:     r.ErrorMessage     || '',
@@ -1154,9 +964,6 @@ async function s4Patch(entityWithKey, body) {
     // ============================================================
     function extractMinimalData(data) {
         var hdr = data.headerFields || {};
-        // Log ALL BPA field names to identify correct keys
-        console.log('extractMinimalData: ALL headerFields keys=' + Object.keys(hdr).join(', '));
-        console.log('extractMinimalData: raw headerFields=' + JSON.stringify(hdr).substring(0, 3000));
         var lineItems = (data.lineItemFields || []).map(function (line) {
             return {
                 itemNumber:     getField(line, 'itemNumber'),
@@ -1170,21 +977,21 @@ async function s4Patch(entityWithKey, body) {
         });
         return {
             currencyCode:       getField(hdr, 'currencyCode'),
-            deliveryAdress:     getField(hdr, 'deliveryAdress') || getField(hdr, 'deliveryAddress'),
+            deliveryAdress:     getField(hdr, 'deliveryAdress'),
             deliveryDate:       getField(hdr, 'deliveryDate'),
             discount:           getField(hdr, 'discount'),
             documentDate:       getField(hdr, 'documentDate'),
-            grossAmount:        getField(hdr, 'grossAmount') || getField(hdr, 'totalAmount') || getField(hdr, 'total'),
+            grossAmount:        getField(hdr, 'grossAmount'),
             netAmount:          getField(hdr, 'netAmount'),
             paymentTerms:       getField(hdr, 'paymentTerms'),
-            purchaseOrder:      getField(hdr, 'purchaseOrder') || getField(hdr, 'purchaseOrderNumber') || getField(hdr, 'poNumber'),
+            purchaseOrder:      getField(hdr, 'purchaseOrder'),
             quantity:           getField(hdr, 'quantity'),
             receiverId:         getField(hdr, 'receiverId'),
             taxId:              getField(hdr, 'taxId') || getField(hdr, 'vatNumber'),
             taxIdNumber:        getField(hdr, 'taxIdNumber'),
             totalVAT:           getField(hdr, 'totalVAT'),
             validity:           getField(hdr, 'validity'),
-            vendorAdress:       getField(hdr, 'vendorAdress') || getField(hdr, 'vendorAddress') || getField(hdr, 'supplierAddress'),
+            vendorAdress:       getField(hdr, 'vendorAdress'),
             vendorNo:           getField(hdr, 'vendorNo'),
             deliveryName:       getField(hdr, 'deliveryName'),
             deliveryPhone:      getField(hdr, 'deliveryPhone') || getField(hdr, 'telephone'),
@@ -1751,83 +1558,12 @@ async function s4Patch(entityWithKey, body) {
     // HELPERS
     // ============================================================
     function getField(obj, fieldName) {
-        if (!obj || obj[fieldName] === undefined || obj[fieldName] === null) return '';
-        var val = obj[fieldName];
-        // Array format from BPA: [{value: "..."}]
-        if (Array.isArray(val) && val.length > 0 && val[0] && val[0].value !== undefined) {
-            return String(val[0].value).trim();
-        }
-        // Direct string value
-        if (typeof val === 'string') {
+        if (obj && obj[fieldName] && obj[fieldName].length > 0 &&
+            obj[fieldName][0].value !== undefined) {
+            var val = String(obj[fieldName][0].value);
             return val.trim();
         }
-        // Direct number value
-        if (typeof val === 'number') {
-            return String(val);
-        }
         return '';
-    }
-
-    // S/4HANA entity fields (skip computed/virtual fields not in S/4HANA)
-    var S4_FIELDS = ['Uuid','ProcessName','PdfName','MailSubject','PurchaseOrder',
-        'DeliveryDate','DocumentDate','ReceiverId','CurrencyCode','NetAmount',
-        'GrossAmount','TotalVat','Discount','DeliveryAdress','VendorAdress',
-        'Status','SalesOrderNumber','ErrorMessage','MissingBarcodes','ItemCount',
-        'CreatedAt','UpdatedAt'];
-
-    function buildODataFilter(where) {
-        if (!where || where.length === 0) return '';
-        var parts = [];
-        var i = 0;
-        while (i < where.length) {
-            var item = where[i];
-            if (item === 'and' || item === 'or') {
-                parts.push(item);
-                i++;
-            } else if (item.ref) {
-                // Field reference - check it exists in S/4HANA
-                var field = item.ref[0];
-                if (S4_FIELDS.indexOf(field) === -1) {
-                    // Skip filter on non-S/4HANA fields, also skip operator and value
-                    i += 3;
-                    // Remove trailing 'and'/'or' if present
-                    if (parts.length > 0 && (parts[parts.length-1] === 'and' || parts[parts.length-1] === 'or')) {
-                        parts.pop();
-                    }
-                    continue;
-                }
-                var op = where[i+1];
-                var valItem = where[i+2];
-                if (op && valItem !== undefined) {
-                    var odataOp = op === '=' ? 'eq' : op === '!=' ? 'ne' :
-                                  op === '>' ? 'gt' : op === '<' ? 'lt' :
-                                  op === '>=' ? 'ge' : op === '<=' ? 'le' : op;
-                    var val = valItem.val !== undefined ? valItem.val : valItem;
-                    if (typeof val === 'string') {
-                        parts.push(field + " " + odataOp + " '" + val.replace(/'/g, "''") + "'");
-                    } else {
-                        parts.push(field + " " + odataOp + " " + val);
-                    }
-                    i += 3;
-                } else {
-                    i++;
-                }
-            } else if (item.func) {
-                // Function like contains, startswith
-                var funcField = item.args && item.args[0] && item.args[0].ref ? item.args[0].ref[0] : '';
-                var funcVal = item.args && item.args[1] ? item.args[1].val : '';
-                if (funcField && S4_FIELDS.indexOf(funcField) !== -1) {
-                    parts.push(item.func + "(" + funcField + ",'" + String(funcVal).replace(/'/g, "''") + "')");
-                }
-                i++;
-            } else {
-                i++;
-            }
-        }
-        // Clean up leading/trailing and/or
-        while (parts.length > 0 && (parts[0] === 'and' || parts[0] === 'or')) parts.shift();
-        while (parts.length > 0 && (parts[parts.length-1] === 'and' || parts[parts.length-1] === 'or')) parts.pop();
-        return parts.join(' ');
     }
 
     function parseJsonField(val) {
@@ -1895,4 +1631,5 @@ async function s4Patch(entityWithKey, body) {
         return find(where);
     }
 
+    await super.init();
 }}

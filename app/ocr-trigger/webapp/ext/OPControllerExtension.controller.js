@@ -155,7 +155,7 @@ sap.ui.define([
                 var sCsrfToken = tokenResponse.headers.get("X-Csrf-Token");
 
                 // Step 2: Call triggerLog bound action on OCRLogs entity
-                return fetch(sServiceUrl + "OCRLogs(" + sUuid + ")/OCRService.triggerLog", {
+                return fetch(sServiceUrl + "OCRLogs('" + sUuid + "')/OCRService.triggerLog", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
