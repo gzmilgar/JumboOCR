@@ -191,8 +191,12 @@ sap.ui.define([
             .then(function (result) {
                 sap.ui.core.BusyIndicator.hide();
 
-                // Refresh model immediately so Object Page gets fresh data
-                oModel.refresh();
+                // Refresh Object Page binding context to show updated values
+                try {
+                    oContext.requestSideEffects([{$NavigationPropertyPath: ""}]);
+                } catch (e) {
+                    oModel.refresh();
+                }
 
                 if (result.success) {
                     // Cache sales order to block future triggers without server round-trip
@@ -210,7 +214,11 @@ sap.ui.define([
             })
             .catch(function (error) {
                 sap.ui.core.BusyIndicator.hide();
-                oModel.refresh();
+                try {
+                    oContext.requestSideEffects([{$NavigationPropertyPath: ""}]);
+                } catch (e) {
+                    oModel.refresh();
+                }
                 MessageBox.error(
                     error.message || "Request failed",
                     { title: "Trigger Failed" }
