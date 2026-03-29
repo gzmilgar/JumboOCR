@@ -156,12 +156,13 @@ sap.ui.define([
                                     if (result.success) {
                                         MessageToast.show("Operation Successful");
                                         oDialog.close();
-                                        // Refresh Object Page binding context to show updated values
-                                        try {
-                                            oBindingContext.requestSideEffects([{$NavigationPropertyPath: ""}]);
-                                        } catch (e) {
+                                        // Force refresh after dialog fully closes
+                                        setTimeout(function() {
+                                            try {
+                                                oBindingContext.refresh();
+                                            } catch(e) {}
                                             oModel.refresh();
-                                        }
+                                        }, 500);
                                     } else {
                                         MessageToast.show("Save failed: " + (result.message || "Unknown error"));
                                     }

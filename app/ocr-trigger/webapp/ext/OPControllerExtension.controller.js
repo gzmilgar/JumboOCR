@@ -191,15 +191,13 @@ sap.ui.define([
             .then(function (result) {
                 sap.ui.core.BusyIndicator.hide();
 
-                // Refresh Object Page binding context to show updated values
-                try {
-                    oContext.requestSideEffects([{$NavigationPropertyPath: ""}]);
-                } catch (e) {
+                // Force refresh after action completes
+                setTimeout(function() {
+                    try { oContext.refresh(); } catch(e) {}
                     oModel.refresh();
-                }
+                }, 500);
 
                 if (result.success) {
-                    // Cache sales order to block future triggers without server round-trip
                     that._createdSalesOrder = result.salesOrder;
                     MessageBox.success(
                         "Sales Order " + result.salesOrder + " created successfully!",
@@ -214,11 +212,10 @@ sap.ui.define([
             })
             .catch(function (error) {
                 sap.ui.core.BusyIndicator.hide();
-                try {
-                    oContext.requestSideEffects([{$NavigationPropertyPath: ""}]);
-                } catch (e) {
+                setTimeout(function() {
+                    try { oContext.refresh(); } catch(e) {}
                     oModel.refresh();
-                }
+                }, 500);
                 MessageBox.error(
                     error.message || "Request failed",
                     { title: "Trigger Failed" }
