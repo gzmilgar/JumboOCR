@@ -156,13 +156,10 @@ sap.ui.define([
                                     if (result.success) {
                                         MessageToast.show("Operation Successful");
                                         oDialog.close();
-                                        // Force refresh after dialog fully closes
+                                        // Reload page to show updated values
                                         setTimeout(function() {
-                                            try {
-                                                oBindingContext.refresh();
-                                            } catch(e) {}
-                                            oModel.refresh();
-                                        }, 500);
+                                            window.location.reload();
+                                        }, 300);
                                     } else {
                                         MessageToast.show("Save failed: " + (result.message || "Unknown error"));
                                     }
