@@ -309,12 +309,11 @@ this.on('UPDATE', 'OCRItems', async (req) => {
 });
 
     // ============================================================
-    // triggerLog - Bound action on OCRLogs
+    // triggerLog - Unbound action (uuid as parameter)
     // ============================================================
-    this.on('triggerLog', 'OCRLogs', async (req) => {
-        var uuid = req.params?.[0]?.Uuid || req.params?.[0];
+    this.on('triggerLog', async (req) => {
+        var uuid = req.data?.uuid;
         console.log('=== triggerLog called: uuid=' + uuid + ' ===');
-        console.log('triggerLog req.params:', JSON.stringify(req.params));
         try {
             if (!uuid) return { success: false, message: 'UUID is required', salesOrder: '' };
             var logEntry = await s4GetPOLog(uuid);
