@@ -263,19 +263,24 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     return req.data;
 });
 
-    await super.init();
-
     // ============================================================
     // triggerLog - Bound action on OCRLogs
     // ============================================================
     this.on('triggerLog', 'OCRLogs', async (req) => {
         var uuid = req.params?.[0]?.Uuid || req.params?.[0];
-        console.log('triggerLog called: uuid=' + uuid);
+        console.log('=== triggerLog called: uuid=' + uuid + ' ===');
+        console.log('triggerLog req.params:', JSON.stringify(req.params));
         try {
             if (!uuid) return { success: false, message: 'UUID is required', salesOrder: '' };
             var logEntry = await s4GetPOLog(uuid);
-            if (!logEntry) return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
-            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
+            if (!logEntry) {
+                console.log('triggerLog: POLog not found for uuid=' + uuid);
+                return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
+            }
+            console.log('triggerLog: processName=' + logEntry.processName + ' PO=' + logEntry.purchaseOrder + ' items=' + logEntry.items.length);
+
+            var stsaResult = await _lookupShipToAndSalesArea(logEntry.processName);
+            console.log('triggerLog: STSA success=' + stsaResult.success + ' msg=' + stsaResult.message);
             var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
             var minData = {
                 purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
@@ -289,11 +294,13 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             };
             var data = wrapForBuildPayload(minData);
             await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+            console.log('triggerLog: calling _processSalesOrder...');
             var result = await _processSalesOrder(data, stsa, logEntry.processName);
+            console.log('triggerLog: result success=' + result.success + ' SO=' + result.salesOrderNumber + ' msg=' + result.message);
             await autoUpdatePOLog(uuid, result.success?'SUCCESS':'FAILED',
                 result.salesOrderNumber||'', result.success?'':(result.message||''),
                 result.itemCount||0, result.missingBarcodes||'');
-            return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
+            return { success: result.success, message: result.message||'Sales order creation failed', salesOrder: result.salesOrderNumber||'' };
         } catch (e) {
             console.error('triggerLog error: ' + e.message);
             console.error('triggerLog stack: ' + e.stack);
@@ -312,41 +319,6 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             console.error('triggerLog errorMsg: ' + errorMsg);
             try { await autoUpdatePOLog(uuid, 'FAILED', '', errorMsg, 0, ''); } catch (e2) {}
             return { success: false, message: errorMsg, salesOrder: '' };
-        }
-    });
-
-    // ============================================================
-    // Bound retrigger action (Object Page butonu) - backward compat
-    // ============================================================
-    this.on('retrigger', 'OCRLogs', async (req) => {
-        const uuid = req.params?.[0]?.Uuid || req.params?.[0];
-        try {
-            var logEntry = await s4GetPOLog(uuid);
-            if (!logEntry) return { success: false, message: 'Not found: ' + uuid, salesOrder: '' };
-            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
-            var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
-            var minData = {
-                purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
-                documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
-                deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress,
-                taxId: logEntry.taxId,
-                lineItems: logEntry.items.map(function(i) {
-                    return { barcode: i.Barcode||'', quantity: String(i.Quantity||''),
-                             unitPrice: String(i.UnitPrice||''), itemNumber: i.ItemNumber||'',
-                             description: i.Description||'', materialNumber: i.MaterialNumber||'' };
-                })
-            };
-            var data = wrapForBuildPayload(minData);
-            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
-            var result = await _processSalesOrder(data, stsa, logEntry.processName);
-            await autoUpdatePOLog(uuid, result.success ? 'SUCCESS' : 'FAILED',
-                result.salesOrderNumber||'', result.success ? '' : (result.message||''),
-                result.itemCount||0, result.missingBarcodes||'');
-            return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
-        } catch (e) {
-            console.error('retrigger error:', e.message);
-            try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch(e2){}
-            return { success: false, message: e.message, salesOrder: '' };
         }
     });
 
@@ -515,65 +487,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     });
 
     // ============================================================
-    // 3) retryPOLog
-    // ============================================================
-    this.on('retryPOLog', async (req) => {
-        var uuid = req.data.uuid;
-        console.log('=== retryPOLog called uuid=' + uuid + ' ===');
-        try {
-            var logEntry = await s4GetPOLog(uuid);
-            if (!logEntry) {
-                return { salesOrderNumber: null, message: 'POLog not found: ' + uuid, success: false, itemCount: 0, missingBarcodes: '' };
-            }
-
-            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
-            var stsa = {
-                shipToPartners: stsaResult.shipToPartners,
-                salesAreaMap:   stsaResult.salesAreaMap
-            };
-
-            var minData = {
-                purchaseOrder:  logEntry.purchaseOrder,
-                deliveryDate:   logEntry.deliveryDate,
-                documentDate:   logEntry.documentDate,
-                receiverId:     logEntry.receiverId,
-                deliveryAdress: logEntry.deliveryAdress,
-                vendorAdress:   logEntry.vendorAdress,
-                taxId:          logEntry.taxId,
-                lineItems: logEntry.items.map(function (i) {
-                    return {
-                        barcode:        i.Barcode || '',
-                        quantity:       String(i.Quantity || ''),
-                        unitPrice:      String(i.UnitPrice || ''),
-                        itemNumber:     i.ItemNumber || '',
-                        description:    i.Description || '',
-                        materialNumber: i.MaterialNumber || ''
-                    };
-                })
-            };
-            var data = wrapForBuildPayload(minData);
-
-            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
-            var result = await _processSalesOrder(data, stsa, logEntry.processName);
-            await autoUpdatePOLog(uuid,
-                result.success ? 'SUCCESS' : 'FAILED',
-                result.salesOrderNumber || '',
-                result.success ? '' : (result.message || ''),
-                result.itemCount || 0,
-                result.missingBarcodes || '');
-
-            console.log('retryPOLog: uuid=' + uuid + ' → success=' + result.success + ' SO=' + result.salesOrderNumber);
-            return result;
-
-        } catch (error) {
-            console.error('retryPOLog Error: ' + error.message);
-            try { await autoUpdatePOLog(uuid, 'FAILED', '', error.message, 0, ''); } catch (e2) { }
-            return { salesOrderNumber: null, message: 'Failed: ' + error.message, success: false, itemCount: 0, missingBarcodes: '' };
-        }
-    });
-
-    // ============================================================
-    // 4) getPOLogs
+    // 3) getPOLogs
     // ============================================================
     this.on('getPOLogs', async (req) => {
         try {
@@ -1716,4 +1630,5 @@ async function s4Patch(entityWithKey, body) {
         return find(where);
     }
 
+    await super.init();
 }}

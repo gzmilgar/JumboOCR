@@ -15,6 +15,12 @@ sap.ui.define([
                     this._createdSalesOrder = null;
 
                     if (this._buttonsAdded) {
+                        // Update existing buttons' binding context for the new record
+                        var oView = this.base.getView();
+                        var oEditBtn = oView.byId(oView.getId() + "--customEditBtn");
+                        var oTriggerBtn = oView.byId(oView.getId() + "--customTriggerBtn");
+                        if (oEditBtn) oEditBtn.setBindingContext(oBindingContext);
+                        if (oTriggerBtn) oTriggerBtn.setBindingContext(oBindingContext);
                         return;
                     }
 
@@ -149,7 +155,7 @@ sap.ui.define([
                 var sCsrfToken = tokenResponse.headers.get("X-Csrf-Token");
 
                 // Step 2: Call triggerLog bound action on OCRLogs entity
-                return fetch(sServiceUrl + "OCRLogs(" + sUuid + ")/OCRService.triggerLog", {
+                return fetch(sServiceUrl + "OCRLogs('" + sUuid + "')/OCRService.triggerLog", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -185,29 +191,44 @@ sap.ui.define([
             .then(function (result) {
                 sap.ui.core.BusyIndicator.hide();
 
-                // Refresh model immediately so Object Page gets fresh data
-                oModel.refresh();
+                // OData V4 action result may have fields at top level or in value
+                var bSuccess = result.success || (result.value && result.value.success);
+                var sMessage = result.message || (result.value && result.value.message) || "";
+                var sSalesOrder = result.salesOrder || (result.value && result.value.salesOrder) || "";
 
-                if (result.success) {
-                    // Cache sales order to block future triggers without server round-trip
-                    that._createdSalesOrder = result.salesOrder;
+                if (bSuccess) {
+                    that._createdSalesOrder = sSalesOrder;
                     MessageBox.success(
-                        "Sales Order " + result.salesOrder + " created successfully!",
-                        { title: "Success" }
+                        "Sales Order " + sSalesOrder + " created successfully!",
+                        {
+                            title: "Success",
+                            onClose: function () {
+                                window.location.reload();
+                            }
+                        }
                     );
                 } else {
                     MessageBox.error(
-                        result.message || "Sales order creation failed",
-                        { title: "Trigger Failed" }
+                        sMessage || "Sales order creation failed",
+                        {
+                            title: "Trigger Failed",
+                            onClose: function () {
+                                window.location.reload();
+                            }
+                        }
                     );
                 }
             })
             .catch(function (error) {
                 sap.ui.core.BusyIndicator.hide();
-                oModel.refresh();
                 MessageBox.error(
                     error.message || "Request failed",
-                    { title: "Trigger Failed" }
+                    {
+                        title: "Trigger Failed",
+                        onClose: function () {
+                            window.location.reload();
+                        }
+                    }
                 );
             });
         }
