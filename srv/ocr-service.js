@@ -840,9 +840,7 @@ async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, ite
             Status:           status           || '',
             SalesOrderNumber: safeSoNumber,
             ErrorMessage:     safeErrorMsg,
-            ItemCount:        itemCount        || 0,
-            MissingBarcodes:  safeMissing,
-            UpdatedAt:        now
+            MissingBarcodes:  safeMissing
         });
         console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
     } catch (e) {
