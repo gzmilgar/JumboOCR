@@ -392,15 +392,7 @@ annotate service.OCRLogs with @(
     // ============================================================
     // Object Page - Identification (Header Action Buttons)
     // ============================================================
-    UI.Identification: [
-        {
-
-
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Trigger',
-            Action : 'OCRService.triggerLog'
-        }
-    ]
+    UI.Identification: []
 );
 
 // ============================================================

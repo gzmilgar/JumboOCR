@@ -872,6 +872,7 @@ async function s4GetPOLog(uuid) {
         discount:         String(r.Discount   || ''),
         deliveryAdress:   r.DeliveryAdress   || '',
         vendorAdress:     r.VendorAdress     || '',
+        taxId:            r.TaxId            || '',
         status:           r.Status           || '',
         salesOrderNumber: r.SalesOrderNumber || '',
         errorMessage:     r.ErrorMessage     || '',
