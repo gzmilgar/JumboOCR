@@ -839,8 +839,7 @@ async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, ite
         await s4Patch("OCRLogHead(" + uuid + ")", {
             Status:           status           || '',
             SalesOrderNumber: safeSoNumber,
-            ErrorMessage:     safeErrorMsg,
-            MissingBarcodes:  safeMissing
+            ErrorMessage:     safeErrorMsg
         });
         console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
     } catch (e) {
