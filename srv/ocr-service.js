@@ -77,9 +77,16 @@ if (uuid) {
     }];
 }
  else {
+                // Build $filter from CDS query WHERE clause
+                var filterStr = buildODataFilter(req.query?.SELECT?.where);
+                var url = OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200';
+                if (filterStr) {
+                    url += '&$filter=' + encodeURIComponent(filterStr);
+                    console.log('OCRLogs READ: $filter=' + filterStr);
+                }
                 const response = await executeHttpRequest(
                     { destinationName: 'QS4_HTTPS' },
-                    { method: 'GET', url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
+                    { method: 'GET', url: url,
                       headers: { 'Accept': 'application/json' }, timeout: 30000 }
                 );
                 return (response.data?.value || []).map(r => ({
@@ -1759,6 +1766,68 @@ async function s4Patch(entityWithKey, body) {
             return String(val);
         }
         return '';
+    }
+
+    // S/4HANA entity fields (skip computed/virtual fields not in S/4HANA)
+    var S4_FIELDS = ['Uuid','ProcessName','PdfName','MailSubject','PurchaseOrder',
+        'DeliveryDate','DocumentDate','ReceiverId','CurrencyCode','NetAmount',
+        'GrossAmount','TotalVat','Discount','DeliveryAdress','VendorAdress',
+        'Status','SalesOrderNumber','ErrorMessage','MissingBarcodes','ItemCount',
+        'CreatedAt','UpdatedAt'];
+
+    function buildODataFilter(where) {
+        if (!where || where.length === 0) return '';
+        var parts = [];
+        var i = 0;
+        while (i < where.length) {
+            var item = where[i];
+            if (item === 'and' || item === 'or') {
+                parts.push(item);
+                i++;
+            } else if (item.ref) {
+                // Field reference - check it exists in S/4HANA
+                var field = item.ref[0];
+                if (S4_FIELDS.indexOf(field) === -1) {
+                    // Skip filter on non-S/4HANA fields, also skip operator and value
+                    i += 3;
+                    // Remove trailing 'and'/'or' if present
+                    if (parts.length > 0 && (parts[parts.length-1] === 'and' || parts[parts.length-1] === 'or')) {
+                        parts.pop();
+                    }
+                    continue;
+                }
+                var op = where[i+1];
+                var valItem = where[i+2];
+                if (op && valItem !== undefined) {
+                    var odataOp = op === '=' ? 'eq' : op === '!=' ? 'ne' :
+                                  op === '>' ? 'gt' : op === '<' ? 'lt' :
+                                  op === '>=' ? 'ge' : op === '<=' ? 'le' : op;
+                    var val = valItem.val !== undefined ? valItem.val : valItem;
+                    if (typeof val === 'string') {
+                        parts.push(field + " " + odataOp + " '" + val.replace(/'/g, "''") + "'");
+                    } else {
+                        parts.push(field + " " + odataOp + " " + val);
+                    }
+                    i += 3;
+                } else {
+                    i++;
+                }
+            } else if (item.func) {
+                // Function like contains, startswith
+                var funcField = item.args && item.args[0] && item.args[0].ref ? item.args[0].ref[0] : '';
+                var funcVal = item.args && item.args[1] ? item.args[1].val : '';
+                if (funcField && S4_FIELDS.indexOf(funcField) !== -1) {
+                    parts.push(item.func + "(" + funcField + ",'" + String(funcVal).replace(/'/g, "''") + "')");
+                }
+                i++;
+            } else {
+                i++;
+            }
+        }
+        // Clean up leading/trailing and/or
+        while (parts.length > 0 && (parts[0] === 'and' || parts[0] === 'or')) parts.shift();
+        while (parts.length > 0 && (parts[parts.length-1] === 'and' || parts[parts.length-1] === 'or')) parts.pop();
+        return parts.join(' ');
     }
 
     function parseJsonField(val) {
