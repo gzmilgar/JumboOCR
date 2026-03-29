@@ -492,6 +492,11 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             }
 
             var minData = extractMinimalData(data);
+            console.log('[' + processName + '] minData: PO=' + minData.purchaseOrder +
+                ' vendor=' + (minData.vendorAdress || '').substring(0, 50) +
+                ' gross=' + minData.grossAmount +
+                ' net=' + minData.netAmount +
+                ' delivery=' + (minData.deliveryAdress || '').substring(0, 50));
             logUuid = await autoSavePOLog({
                 processName:    processName,
                 pdfName:        req.data.pdfName || '',
@@ -1129,6 +1134,10 @@ async function s4Patch(entityWithKey, body) {
     // ============================================================
     function extractMinimalData(data) {
         var hdr = data.headerFields || {};
+        // Log raw BPA field formats for debugging
+        console.log('extractMinimalData: raw purchaseOrder=' + JSON.stringify(hdr.purchaseOrder));
+        console.log('extractMinimalData: raw vendorAdress=' + JSON.stringify(hdr.vendorAdress));
+        console.log('extractMinimalData: raw grossAmount=' + JSON.stringify(hdr.grossAmount));
         var lineItems = (data.lineItemFields || []).map(function (line) {
             return {
                 itemNumber:     getField(line, 'itemNumber'),
@@ -1723,10 +1732,19 @@ async function s4Patch(entityWithKey, body) {
     // HELPERS
     // ============================================================
     function getField(obj, fieldName) {
-        if (obj && obj[fieldName] && obj[fieldName].length > 0 &&
-            obj[fieldName][0].value !== undefined) {
-            var val = String(obj[fieldName][0].value);
+        if (!obj || obj[fieldName] === undefined || obj[fieldName] === null) return '';
+        var val = obj[fieldName];
+        // Array format from BPA: [{value: "..."}]
+        if (Array.isArray(val) && val.length > 0 && val[0] && val[0].value !== undefined) {
+            return String(val[0].value).trim();
+        }
+        // Direct string value
+        if (typeof val === 'string') {
             return val.trim();
+        }
+        // Direct number value
+        if (typeof val === 'number') {
+            return String(val);
         }
         return '';
     }
