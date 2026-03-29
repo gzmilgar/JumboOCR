@@ -371,84 +371,12 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     // ============================================================
     this.on('lookupShipToAndSalesArea', async (req) => {
         try {
-            console.log('=== lookupShipToAndSalesArea called ===');
-            var ocrCompany = req.data.ocrCompany;
-            if (!ocrCompany) {
-                throw new Error('ocrCompany parameter is required');
-            }
-            console.log('Company: ' + ocrCompany);
-
-            var basePath = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
-            var url = basePath + "/Root"
-                + "?$expand=_ShipToPartner($filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + ")"
-                + ",_SalesAreaMap"
-                + "&$format=json";
-
-            console.log('Calling S/4HANA...');
-            var response = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                {
-                    method: 'GET',
-                    url: url,
-                    headers: { 'Accept': 'application/json' },
-                    timeout: 30000
-                }
-            );
-
-            var results = response.data?.value || [];
-            var shipToResults = [];
-            var salesAreaResults = [];
-            results.forEach(function (item) {
-                if (item._ShipToPartner) {
-                    shipToResults = shipToResults.concat(item._ShipToPartner);
-                }
-                if (item._SalesAreaMap) {
-                    salesAreaResults = salesAreaResults.concat(item._SalesAreaMap);
-                }
-            });
-
-            console.log('ShipToPartner results: ' + shipToResults.length);
-            console.log('SalesAreaMap results: ' + salesAreaResults.length);
-
-            if (salesAreaResults.length > 0) {
-                console.log('SalesAreaMap SAMPLE keys: ' + Object.keys(salesAreaResults[0]).join(', '));
-                console.log('SalesAreaMap SAMPLE data: ' + JSON.stringify(salesAreaResults[0]));
-            }
-
-            if (shipToResults.length > 0) {
-                console.log('ShipToPartner SAMPLE keys: ' + Object.keys(shipToResults[0]).join(', '));
-                console.log('ShipToPartner SAMPLE data: ' + JSON.stringify(shipToResults[0]));
-            }
-
-            if (shipToResults.length === 0 && salesAreaResults.length === 0) {
-                return {
-                    shipToPartners: '[]',
-                    salesAreaMap: '[]',
-                    success: false,
-                    message: 'No data found for: ' + ocrCompany
-                };
-            }
-
-            return {
-                shipToPartners: JSON.stringify(shipToResults),
-                salesAreaMap: JSON.stringify(salesAreaResults),
-                success: true,
-                message: 'ShipTo: ' + shipToResults.length + ' records, SalesArea: ' + salesAreaResults.length + ' records'
-            };
+            console.log('=== lookupShipToAndSalesArea action called ===');
+            return await _lookupShipToAndSalesArea(req.data.ocrCompany);
         } catch (error) {
             console.error('lookupShipToAndSalesArea Error: ' + error.message);
-            var errorMsg = 'Unknown error';
-            if (error.response?.data?.error?.message?.value) {
-                errorMsg = error.response.data.error.message.value;
-            } else if (error.message) {
-                errorMsg = error.message;
-            }
-            return {
-                shipToPartners: '[]',
-                salesAreaMap: '[]',
-                success: false,
-                message: 'Failed: ' + errorMsg
-            };
+            var errorMsg = error.response?.data?.error?.message?.value || error.message || 'Unknown error';
+            return { shipToPartners: '[]', salesAreaMap: '[]', success: false, message: 'Failed: ' + errorMsg };
         }
     });
 
@@ -851,6 +779,46 @@ this.on('updatePOLogData', async (req) => {
             console.error('autoSavePOLog error: ' + e.message);
             return uuid;
         }
+    }
+
+    // ============================================================
+    // INTERNAL: _lookupShipToAndSalesArea
+    // ============================================================
+    async function _lookupShipToAndSalesArea(ocrCompany) {
+        if (!ocrCompany) {
+            return { shipToPartners: '[]', salesAreaMap: '[]', success: false, message: 'ocrCompany parameter is required' };
+        }
+        console.log('_lookupShipToAndSalesArea: Company=' + ocrCompany);
+        var basePath = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
+        var url = basePath + "/Root"
+            + "?$expand=_ShipToPartner($filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + ")"
+            + ",_SalesAreaMap"
+            + "&$format=json";
+
+        var response = await executeHttpRequest(
+            { destinationName: 'QS4_HTTPS' },
+            { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+        );
+
+        var results = response.data?.value || [];
+        var shipToResults = [];
+        var salesAreaResults = [];
+        results.forEach(function (item) {
+            if (item._ShipToPartner) shipToResults = shipToResults.concat(item._ShipToPartner);
+            if (item._SalesAreaMap) salesAreaResults = salesAreaResults.concat(item._SalesAreaMap);
+        });
+
+        console.log('_lookupShipToAndSalesArea: ShipTo=' + shipToResults.length + ' SalesArea=' + salesAreaResults.length);
+
+        if (shipToResults.length === 0 && salesAreaResults.length === 0) {
+            return { shipToPartners: '[]', salesAreaMap: '[]', success: false, message: 'No data found for: ' + ocrCompany };
+        }
+        return {
+            shipToPartners: JSON.stringify(shipToResults),
+            salesAreaMap: JSON.stringify(salesAreaResults),
+            success: true,
+            message: 'ShipTo: ' + shipToResults.length + ' records, SalesArea: ' + salesAreaResults.length + ' records'
+        };
     }
 
     // ============================================================
