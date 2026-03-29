@@ -984,17 +984,18 @@ async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, ite
         var safeSoNumber = String(salesOrderNumber || '').substring(0, 40);
         var safeMissing  = String(missingBarcodes || '').substring(0, 220);
 
-        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status +
-            ' SO=' + safeSoNumber + ' errorMsg=' + safeErrorMsg.substring(0, 80));
+        var patchBody = {};
+        if (status)         patchBody.Status           = status;
+        if (safeSoNumber)   patchBody.SalesOrderNumber = safeSoNumber;
+        if (safeErrorMsg)   patchBody.ErrorMessage     = safeErrorMsg;
+        if (safeMissing)    patchBody.MissingBarcodes  = safeMissing;
 
-        await s4Patch("OCRLogHead(" + uuid + ")", {
-            Status:           status           || '',
-            SalesOrderNumber: safeSoNumber,
-            ErrorMessage:     safeErrorMsg,
-            ItemCount:        itemCount        || 0,
-            MissingBarcodes:  safeMissing
-        });
-        console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
+        console.log('autoUpdatePOLog: uuid=' + uuid + ' patchBody=' + JSON.stringify(patchBody));
+
+        if (Object.keys(patchBody).length > 0) {
+            await s4Patch("OCRLogHead(" + uuid + ")", patchBody);
+            console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
+        }
     } catch (e) {
         console.error('autoUpdatePOLog PATCH FAILED: ' + e.message);
         try {
