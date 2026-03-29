@@ -21,7 +21,27 @@ module.exports = class extends cds.ApplicationService { async init() {
     // ============================================================
     this.on('READ', 'OCRLogs', async (req) => {
         try {
-            const uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
+            // Extract UUID from multiple possible locations
+            var uuid = null;
+
+            // 1) req.params (navigation: OCRLogs('uuid'))
+            if (req.params && req.params.length > 0) {
+                var p = req.params[0];
+                uuid = (typeof p === 'object') ? (p.Uuid || p.UUID || p.uuid) : p;
+            }
+
+            // 2) req.data (sometimes CAP puts key here)
+            if (!uuid && req.data && req.data.Uuid) {
+                uuid = req.data.Uuid;
+            }
+
+            // 3) WHERE clause
+            if (!uuid) {
+                uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
+            }
+
+            console.log('OCRLogs READ: uuid=' + (uuid || 'null') + ' params=' + JSON.stringify(req.params));
+
 if (uuid) {
     const r = await s4GetPOLog(uuid);
     return [{
