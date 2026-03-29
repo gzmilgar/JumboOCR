@@ -1134,10 +1134,9 @@ async function s4Patch(entityWithKey, body) {
     // ============================================================
     function extractMinimalData(data) {
         var hdr = data.headerFields || {};
-        // Log raw BPA field formats for debugging
-        console.log('extractMinimalData: raw purchaseOrder=' + JSON.stringify(hdr.purchaseOrder));
-        console.log('extractMinimalData: raw vendorAdress=' + JSON.stringify(hdr.vendorAdress));
-        console.log('extractMinimalData: raw grossAmount=' + JSON.stringify(hdr.grossAmount));
+        // Log ALL BPA field names to identify correct keys
+        console.log('extractMinimalData: ALL headerFields keys=' + Object.keys(hdr).join(', '));
+        console.log('extractMinimalData: raw headerFields=' + JSON.stringify(hdr).substring(0, 3000));
         var lineItems = (data.lineItemFields || []).map(function (line) {
             return {
                 itemNumber:     getField(line, 'itemNumber'),
@@ -1151,21 +1150,21 @@ async function s4Patch(entityWithKey, body) {
         });
         return {
             currencyCode:       getField(hdr, 'currencyCode'),
-            deliveryAdress:     getField(hdr, 'deliveryAdress'),
+            deliveryAdress:     getField(hdr, 'deliveryAdress') || getField(hdr, 'deliveryAddress'),
             deliveryDate:       getField(hdr, 'deliveryDate'),
             discount:           getField(hdr, 'discount'),
             documentDate:       getField(hdr, 'documentDate'),
-            grossAmount:        getField(hdr, 'grossAmount'),
+            grossAmount:        getField(hdr, 'grossAmount') || getField(hdr, 'totalAmount') || getField(hdr, 'total'),
             netAmount:          getField(hdr, 'netAmount'),
             paymentTerms:       getField(hdr, 'paymentTerms'),
-            purchaseOrder:      getField(hdr, 'purchaseOrder'),
+            purchaseOrder:      getField(hdr, 'purchaseOrder') || getField(hdr, 'purchaseOrderNumber') || getField(hdr, 'poNumber'),
             quantity:           getField(hdr, 'quantity'),
             receiverId:         getField(hdr, 'receiverId'),
             taxId:              getField(hdr, 'taxId') || getField(hdr, 'vatNumber'),
             taxIdNumber:        getField(hdr, 'taxIdNumber'),
             totalVAT:           getField(hdr, 'totalVAT'),
             validity:           getField(hdr, 'validity'),
-            vendorAdress:       getField(hdr, 'vendorAdress'),
+            vendorAdress:       getField(hdr, 'vendorAdress') || getField(hdr, 'vendorAddress') || getField(hdr, 'supplierAddress'),
             vendorNo:           getField(hdr, 'vendorNo'),
             deliveryName:       getField(hdr, 'deliveryName'),
             deliveryPhone:      getField(hdr, 'deliveryPhone') || getField(hdr, 'telephone'),
