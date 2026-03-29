@@ -191,34 +191,44 @@ sap.ui.define([
             .then(function (result) {
                 sap.ui.core.BusyIndicator.hide();
 
-                // Force refresh after action completes
-                setTimeout(function() {
-                    try { oContext.refresh(); } catch(e) {}
-                    oModel.refresh();
-                }, 500);
+                // OData V4 action result may have fields at top level or in value
+                var bSuccess = result.success || (result.value && result.value.success);
+                var sMessage = result.message || (result.value && result.value.message) || "";
+                var sSalesOrder = result.salesOrder || (result.value && result.value.salesOrder) || "";
 
-                if (result.success) {
-                    that._createdSalesOrder = result.salesOrder;
+                if (bSuccess) {
+                    that._createdSalesOrder = sSalesOrder;
                     MessageBox.success(
-                        "Sales Order " + result.salesOrder + " created successfully!",
-                        { title: "Success" }
+                        "Sales Order " + sSalesOrder + " created successfully!",
+                        {
+                            title: "Success",
+                            onClose: function () {
+                                window.location.reload();
+                            }
+                        }
                     );
                 } else {
                     MessageBox.error(
-                        result.message || "Sales order creation failed",
-                        { title: "Trigger Failed" }
+                        sMessage || "Sales order creation failed",
+                        {
+                            title: "Trigger Failed",
+                            onClose: function () {
+                                window.location.reload();
+                            }
+                        }
                     );
                 }
             })
             .catch(function (error) {
                 sap.ui.core.BusyIndicator.hide();
-                setTimeout(function() {
-                    try { oContext.refresh(); } catch(e) {}
-                    oModel.refresh();
-                }, 500);
                 MessageBox.error(
                     error.message || "Request failed",
-                    { title: "Trigger Failed" }
+                    {
+                        title: "Trigger Failed",
+                        onClose: function () {
+                            window.location.reload();
+                        }
+                    }
                 );
             });
         }
