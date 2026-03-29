@@ -76,6 +76,12 @@ service OCRService {
         message : String;
     };
 
+    action triggerLog(uuid : String) returns {
+        success    : Boolean;
+        message    : String;
+        salesOrder : String;
+    };
+
     action triggerOCR(
         uuid        : String,
         pdfContent  : String,
@@ -120,12 +126,6 @@ service OCRService {
             UpdatedAt        : String;
         Items : Composition of many OCRItems
                 on Items.HeaderId = $self.Uuid;
-    } actions {
-        action triggerLog() returns {
-            success    : Boolean;
-            message    : String;
-            salesOrder : String;
-        };
     }
 
     @cds.persistence.skip: true

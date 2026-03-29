@@ -194,12 +194,6 @@ annotate service.OCRLogs with @(
             Value : ErrorMessage,
             Label : 'Error Message'
         },
-        {
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Trigger',
-            Action : 'OCRService.triggerLog',
-            Inline : true
-        }
     ]
 );
 
