@@ -35,9 +35,34 @@ module.exports = class extends cds.ApplicationService { async init() {
                 uuid = req.data.Uuid;
             }
 
-            // 3) WHERE clause
+            // 3) WHERE clause (top-level)
             if (!uuid) {
                 uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
+            }
+
+            // 4) FROM ref where clause (bound action entity resolution)
+            //    CAP puts key in: SELECT.from.ref[0].where for bound actions
+            if (!uuid) {
+                try {
+                    var fromRef = req.query?.SELECT?.from?.ref;
+                    if (Array.isArray(fromRef)) {
+                        for (var fi = 0; fi < fromRef.length; fi++) {
+                            if (fromRef[fi] && fromRef[fi].where) {
+                                uuid = extractKeyFromWhere(fromRef[fi].where, 'Uuid');
+                                if (uuid) break;
+                            }
+                        }
+                    }
+                } catch(e) { /* ignore */ }
+            }
+
+            // 5) Last resort: try to extract from the raw URL/path
+            if (!uuid) {
+                try {
+                    var rawUrl = req._.req?.url || req._.req?.path || '';
+                    var m = rawUrl.match(/OCRLogs\('([^']+)'\)/);
+                    if (m) uuid = m[1];
+                } catch(e) { /* ignore */ }
             }
 
             console.log('OCRLogs READ: uuid=' + (uuid || 'null') + ' params=' + JSON.stringify(req.params));
