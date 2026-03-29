@@ -491,6 +491,19 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 }
             }
 
+            // Log top-level keys of BPA data to understand structure
+            console.log('[' + processName + '] BPA data top-level keys=' + Object.keys(data).join(', '));
+            if (data.extraction) {
+                console.log('[' + processName + '] BPA data.extraction keys=' + Object.keys(data.extraction).join(', '));
+                // Some BPA versions wrap data in extraction property
+                if (data.extraction.headerFields && !data.headerFields) {
+                    data.headerFields = data.extraction.headerFields;
+                }
+                if (data.extraction.lineItemFields && !data.lineItemFields) {
+                    data.lineItemFields = data.extraction.lineItemFields;
+                }
+            }
+
             var minData = extractMinimalData(data);
             console.log('[' + processName + '] minData: PO=' + minData.purchaseOrder +
                 ' vendor=' + (minData.vendorAdress || '').substring(0, 50) +
