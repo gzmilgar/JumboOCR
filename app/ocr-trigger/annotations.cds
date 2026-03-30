@@ -68,6 +68,7 @@ annotate service.OCRLogs with {
     SalesOrderNumber @readonly
                      @HTML5.CssDefaults: { width: '9rem' };
     ErrorMessage     @readonly
+                     @UI.MultiLineText: true
                      @HTML5.CssDefaults: { width: '20rem' };
     MissingBarcodes  @UI.Hidden: true
                      @UI.HiddenFilter: true;
