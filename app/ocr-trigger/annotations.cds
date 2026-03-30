@@ -69,7 +69,8 @@ annotate service.OCRLogs with {
                      @HTML5.CssDefaults: { width: '9rem' };
     ErrorMessage     @readonly
                      @HTML5.CssDefaults: { width: '20rem' };
-    MissingBarcodes  @readonly;
+    MissingBarcodes  @UI.Hidden: true
+                     @UI.HiddenFilter: true;
     ItemCount        @readonly
                      @HTML5.CssDefaults: { width: '6rem' };
     CreatedAt        @readonly
@@ -86,7 +87,8 @@ annotate service.OCRLogs with {
                      @HTML5.CssDefaults: { width: '10rem' };
     DeliveryDate     @title: 'Delivery Date';
     DocumentDate     @title: 'Document Date';
-    ReceiverId       @title: 'Receiver ID';
+    ReceiverId       @UI.Hidden: true
+                     @UI.HiddenFilter: true;
     CurrencyCode     @title: 'Currency'
                      @HTML5.CssDefaults: { width: '6rem' };
     DeliveryAdress   @title: 'Delivery Address';
@@ -236,13 +238,6 @@ annotate service.OCRLogs with @(
                 $Type : 'UI.DataField',
                 Value : ErrorMessage,
                 Label : 'Error Message'
-            },
-            {
-
-
-                $Type : 'UI.DataField',
-                Value : MissingBarcodes,
-                Label : 'Missing Barcodes'
             }
         ]
     },
@@ -269,11 +264,6 @@ annotate service.OCRLogs with @(
                 $Type : 'UI.DataField',
                 Value : DocumentDate,
                 Label : 'Document Date'
-            },
-            {
-                $Type : 'UI.DataField',
-                Value : ReceiverId,
-                Label : 'Receiver ID'
             },
             {
 
