@@ -28,7 +28,7 @@ sap.ui.define([
 
             // Use requestObject for fresh data from OData V4 context
             oBindingContext.requestObject().then(function (oData) {
-                // Sales Order zaten oluşturulmuşsa edit'e izin verme
+                // Do not allow edit if Sales Order already created
                 if (oData.SalesOrderNumber) {
                     sap.m.MessageBox.warning(
                         "Sales Order " + oData.SalesOrderNumber + " already created. Editing is not allowed.",

@@ -58,7 +58,7 @@ function buildODataFilter(where) {
 module.exports = class extends cds.ApplicationService { async init() {
 
     // ============================================================
-    // OCRLogs READ - super.init() ÖNCE (liste + tekil kayıt)
+    // OCRLogs READ (list + single record)
     // ============================================================
     this.on('READ', 'OCRLogs', async (req) => {
         try {
@@ -171,7 +171,7 @@ if (uuid) {
     });
 
     // ============================================================
-    // OCRItems READ - super.init() ÖNCE
+    // OCRItems READ
     // ============================================================
 this.on('READ', 'OCRItems', async (req) => {
     try {
@@ -214,7 +214,7 @@ this.on('READ', 'OCRItems', async (req) => {
         return [];
     }
 });
-    // UPDATE - super.init() ÖNCE
+    // UPDATE handler
 this.on('UPDATE', 'OCRLogs', async (req) => {
     let uuid = req.params?.[0]?.Uuid 
             || req.params?.[0] 
@@ -290,7 +290,7 @@ this.on('UPDATE', 'OCRLogs', async (req) => {
             }
         }
 
-        // ── 3. GÜNCEL VERİYİ S/4HANA'DAN ÇEK ───────────────────
+        // ── 3. FETCH UPDATED DATA FROM S/4HANA ───────────────────
         console.log('UPDATE OCRLogs: fetching updated data from S/4HANA...');
         const updated = await s4GetPOLog(uuid);
         console.log('UPDATE OCRLogs: fetch success, status=' + updated.status);
@@ -620,7 +620,7 @@ this.on('updatePOLogData', async (req) => {
                         ' paddedItemNo=' + paddedItemNo);
 
             if (!paddedItemNo || paddedItemNo === '000000') {
-                console.warn('updatePOLogData: item[' + i + '] gecersiz ItemNumber, atlanıyor');
+                console.warn('updatePOLogData: item[' + i + '] invalid ItemNumber, skipping');
                 continue;
             }
 
@@ -648,7 +648,7 @@ this.on('updatePOLogData', async (req) => {
             }
         }
 
-        // ── 3. GÜNCEL VERİYİ S/4HANA'DAN ÇEK VE DÖNDÜR ──────
+        // ── 3. FETCH UPDATED DATA FROM S/4HANA AND RETURN ──────
         console.log('updatePOLogData: fetching updated data...');
         const updated = await s4GetPOLog(uuid);
         console.log('updatePOLogData: fetch success');
@@ -656,7 +656,7 @@ this.on('updatePOLogData', async (req) => {
         return {
             success: true,
             message: 'Updated successfully',
-            // Güncel header bilgileri
+            // Updated header fields
             uuid:             updated.uuid             || uuid,
             purchaseOrder:    updated.purchaseOrder    || '',
             deliveryDate:     updated.deliveryDate     || '',
@@ -671,7 +671,7 @@ this.on('updatePOLogData', async (req) => {
             salesOrderNumber: updated.salesOrderNumber || '',
             errorMessage:     updated.errorMessage     || '',
             missingBarcodes:  updated.missingBarcodes  || '',
-            // Güncel item bilgileri
+            // Updated item fields
             items: JSON.stringify((updated.items || []).map(item => ({
                 HeaderId:       item.HeaderId       || uuid,
                 ItemNumber:     item.ItemNumber      || '',
@@ -762,7 +762,7 @@ this.on('updatePOLogData', async (req) => {
         if (payload.to_Item.length === 0) {
             return {
                 salesOrderNumber: null,
-                message: 'Geçerli kalem yok. Hatalar: ' + errors.join('; '),
+                message: 'No valid items. Errors: ' + errors.join('; '),
                 success: false,
                 itemCount: 0,
                 missingBarcodes: barcodeReport.missing.join(',')
@@ -1382,7 +1382,7 @@ async function s4Patch(entityWithKey, body) {
                 for (var j = 0; j < eanKeys.length; j++) { break; }
             }
             if (!material) {
-                errors.push('Satır ' + (i + 1) + ': Malzeme bulunamadı (EAN: ' + barcode2 + ')');
+                errors.push('Row ' + (i + 1) + ': Material not found (EAN: ' + barcode2 + ')');
                 continue;
             }
 

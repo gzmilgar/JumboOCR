@@ -115,7 +115,7 @@ sap.ui.define([
                     return;
                 }
 
-                // Sales Order zaten oluşturulmuşsa trigger'a izin verme
+                // Do not allow trigger if Sales Order already created
                 if (oData.SalesOrderNumber) {
                     that._createdSalesOrder = oData.SalesOrderNumber;
                     MessageBox.warning(
