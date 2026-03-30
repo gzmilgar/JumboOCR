@@ -1179,7 +1179,7 @@ async function s4Patch(entityWithKey, body) {
             var filterStr = filterParts.join(' or ');
             var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
                 + "?$filter=" + encodeURIComponent(filterStr)
-                + "&$select=Product,ProductStandardID,ProductGroup"
+                + "&$select=Product,ProductStandardID,ProductGroup,Brand"
                 + "&$format=json";
             try {
                 var response = await executeHttpRequest(
@@ -1193,7 +1193,8 @@ async function s4Patch(entityWithKey, body) {
                     if (ean) {
                         productMap[ean] = {
                             material: row.Product || '',
-                            productGroup: row.ProductGroup || ''
+                            productGroup: row.ProductGroup || '',
+                            brand: row.Brand || ''
                         };
                     }
                 }
@@ -1349,6 +1350,7 @@ async function s4Patch(entityWithKey, body) {
         var lineItems = data.lineItemFields || [];
         var firstMaterial = null;
         var firstProductGroup = '';
+        var firstBrand = '';
         var matkl_fam = '';
 
         for (var m = 0; m < lineItems.length && !firstMaterial; m++) {
@@ -1356,14 +1358,16 @@ async function s4Patch(entityWithKey, body) {
             if (barcode && eanProductMap[barcode] && eanProductMap[barcode].material) {
                 firstMaterial = eanProductMap[barcode].material;
                 firstProductGroup = eanProductMap[barcode].productGroup || '';
+                firstBrand = eanProductMap[barcode].brand || '';
                 if (firstProductGroup.length >= 3) matkl_fam = firstProductGroup.substring(0, 3);
                 console.log('buildPayload: First Material=' + firstMaterial +
-                           ' ProductGroup=' + firstProductGroup + ' MATKL_FAM=' + matkl_fam);
+                           ' ProductGroup=' + firstProductGroup + ' Brand=' + firstBrand +
+                           ' MATKL_FAM=' + matkl_fam);
                 break;
             }
         }
 
-        var salesAreaMatch = findSalesArea(salesAreaList, companyCode, matkl_fam);
+        var salesAreaMatch = findSalesArea(salesAreaList, companyCode, matkl_fam, firstBrand);
         console.log('SalesArea for BUKRS=' + companyCode + ' MATKL_FAM=' + (matkl_fam || 'N/A') +
                    ' → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
                    ' SPART:' + salesAreaMatch.spart + ' Plant:' + salesAreaMatch.plant);
@@ -1440,67 +1444,96 @@ async function s4Patch(entityWithKey, body) {
     // ============================================================
     // FIND SALES AREA
     // ============================================================
-    function findSalesArea(salesAreaList, companyCode, matkl_fam) {
+    function findSalesArea(salesAreaList, companyCode, matkl_fam, productBrand) {
         var result = { vkorg: '', vtweg: '', spart: '', plant: '' };
         if (!salesAreaList || salesAreaList.length === 0 || !companyCode) {
             console.log('findSalesArea: empty list or no companyCode');
             return result;
         }
+        var brandUpper = (productBrand || '').trim().toUpperCase();
         console.log('findSalesArea: BUKRS=' + companyCode + ' MATKL_FAM=' + (matkl_fam || 'N/A') +
-                    ' in ' + salesAreaList.length + ' rows');
+                    ' Brand=' + (brandUpper || 'N/A') + ' in ' + salesAreaList.length + ' rows');
 
-        if (matkl_fam) {
+        // 1) Best match: BUKRS + MATKL_FAM + Brand
+        if (matkl_fam && brandUpper) {
             for (var i = 0; i < salesAreaList.length; i++) {
                 var row = salesAreaList[i];
                 var rowBukrs = String(row.Bukrs || row.BUKRS || '').trim();
                 var rowMatkl = String(row.MatklFam || row.MATKL_FAM || '').trim();
-                if (rowBukrs === companyCode && rowMatkl === matkl_fam) {
+                var rowBrand = String(row.Brand || row.BRAND || '').trim().toUpperCase();
+                if (rowBukrs === companyCode && rowMatkl === matkl_fam && rowBrand === brandUpper) {
                     result.vkorg = String(row.Vkorg || row.VKORG || '').trim();
                     result.vtweg = String(row.Vtweg || row.VTWEG || '').trim();
                     result.spart = String(row.Spart || row.SPART || '').trim();
                     result.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
-                    console.log('findSalesArea: ✓ MATKL_FAM MATCH row ' + i +
-                               ' Brand=' + (row.Brand || '') + ' BUKRS=' + rowBukrs +
+                    console.log('findSalesArea: ✓ BUKRS+MATKL+BRAND MATCH row ' + i +
+                               ' Brand=' + rowBrand + ' BUKRS=' + rowBukrs +
                                ' MATKL_FAM=' + rowMatkl + ' VKORG=' + result.vkorg);
                     if (result.vkorg) return result;
                 }
             }
-            console.log('findSalesArea: No MATKL_FAM match, trying default...');
+            console.log('findSalesArea: No BUKRS+MATKL+BRAND match...');
         }
 
-        var defaultMatches = [];
-        for (var j = 0; j < salesAreaList.length; j++) {
-            var row2 = salesAreaList[j];
-            var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
-            var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
-            var rowBrand = String(row2.Brand || row2.BRAND || '').trim().toUpperCase();
-            if (rowBukrs2 === companyCode && !rowMatkl2) {
-                defaultMatches.push({
-                    brand: rowBrand,
-                    vkorg: String(row2.Vkorg || row2.VKORG || '').trim(),
-                    vtweg: String(row2.Vtweg || row2.VTWEG || '').trim(),
-                    spart: String(row2.Spart || row2.SPART || '').trim(),
-                    plant: String(row2.Site || row2.SITE || row2.Werks || row2.WERKS || '').trim()
-                });
+        // 2) Match: BUKRS + Brand (ignore MATKL_FAM)
+        if (brandUpper) {
+            for (var b = 0; b < salesAreaList.length; b++) {
+                var rowB = salesAreaList[b];
+                var rowBukrsB = String(rowB.Bukrs || rowB.BUKRS || '').trim();
+                var rowBrandB = String(rowB.Brand || rowB.BRAND || '').trim().toUpperCase();
+                if (rowBukrsB === companyCode && rowBrandB === brandUpper) {
+                    result.vkorg = String(rowB.Vkorg || rowB.VKORG || '').trim();
+                    result.vtweg = String(rowB.Vtweg || rowB.VTWEG || '').trim();
+                    result.spart = String(rowB.Spart || rowB.SPART || '').trim();
+                    result.plant = String(rowB.Site || rowB.SITE || rowB.Werks || rowB.WERKS || '').trim();
+                    console.log('findSalesArea: ✓ BUKRS+BRAND MATCH row ' + b +
+                               ' Brand=' + rowBrandB + ' BUKRS=' + rowBukrsB + ' VKORG=' + result.vkorg);
+                    if (result.vkorg) return result;
+                }
             }
+            console.log('findSalesArea: No BUKRS+BRAND match...');
         }
 
-        for (var d = 0; d < defaultMatches.length; d++) {
-            if (defaultMatches[d].brand === 'SON' && defaultMatches[d].vkorg) {
-                result = { vkorg: defaultMatches[d].vkorg, vtweg: defaultMatches[d].vtweg,
-                           spart: defaultMatches[d].spart, plant: defaultMatches[d].plant };
-                console.log('findSalesArea: ✓ DEFAULT MATCH (Brand=SON priority) VKORG=' + result.vkorg);
-                return result;
+        // 3) Match: BUKRS + MATKL_FAM (ignore brand)
+        if (matkl_fam) {
+            for (var i2 = 0; i2 < salesAreaList.length; i2++) {
+                var row2 = salesAreaList[i2];
+                var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
+                var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
+                if (rowBukrs2 === companyCode && rowMatkl2 === matkl_fam) {
+                    result.vkorg = String(row2.Vkorg || row2.VKORG || '').trim();
+                    result.vtweg = String(row2.Vtweg || row2.VTWEG || '').trim();
+                    result.spart = String(row2.Spart || row2.SPART || '').trim();
+                    result.plant = String(row2.Site || row2.SITE || row2.Werks || row2.WERKS || '').trim();
+                    console.log('findSalesArea: ✓ BUKRS+MATKL MATCH row ' + i2 +
+                               ' Brand=' + (row2.Brand || '') + ' BUKRS=' + rowBukrs2 +
+                               ' MATKL_FAM=' + rowMatkl2 + ' VKORG=' + result.vkorg);
+                    if (result.vkorg) return result;
+                }
             }
+            console.log('findSalesArea: No BUKRS+MATKL match...');
         }
 
-        if (defaultMatches.length > 0 && defaultMatches[0].vkorg) {
-            result = { vkorg: defaultMatches[0].vkorg, vtweg: defaultMatches[0].vtweg,
-                       spart: defaultMatches[0].spart, plant: defaultMatches[0].plant };
-            console.log('findSalesArea: ✓ DEFAULT MATCH (first found) Brand=' + defaultMatches[0].brand + ' VKORG=' + result.vkorg);
-            return result;
+        // 4) Fallback: Brand match across all BUKRS (company code mismatch)
+        if (brandUpper) {
+            for (var fb = 0; fb < salesAreaList.length; fb++) {
+                var rowFB = salesAreaList[fb];
+                var rowBrandFB = String(rowFB.Brand || rowFB.BRAND || '').trim().toUpperCase();
+                if (rowBrandFB === brandUpper) {
+                    result.vkorg = String(rowFB.Vkorg || rowFB.VKORG || '').trim();
+                    result.vtweg = String(rowFB.Vtweg || rowFB.VTWEG || '').trim();
+                    result.spart = String(rowFB.Spart || rowFB.SPART || '').trim();
+                    result.plant = String(rowFB.Site || rowFB.SITE || rowFB.Werks || rowFB.WERKS || '').trim();
+                    console.log('findSalesArea: ✓ BRAND-ONLY MATCH (fallback) row ' + fb +
+                               ' Brand=' + rowBrandFB + ' BUKRS=' + String(rowFB.Bukrs || rowFB.BUKRS || '') +
+                               ' VKORG=' + result.vkorg);
+                    if (result.vkorg) return result;
+                }
+            }
+            console.log('findSalesArea: No BRAND-only match...');
         }
 
+        // 5) Last resort: BUKRS-only match (first found)
         for (var k = 0; k < salesAreaList.length; k++) {
             var row3 = salesAreaList[k];
             if (String(row3.Bukrs || row3.BUKRS || '').trim() === companyCode) {
@@ -1508,7 +1541,8 @@ async function s4Patch(entityWithKey, body) {
                 result.vtweg = String(row3.Vtweg || row3.VTWEG || '').trim();
                 result.spart = String(row3.Spart || row3.SPART || '').trim();
                 result.plant = String(row3.Site || row3.SITE || row3.Werks || row3.WERKS || '').trim();
-                console.log('findSalesArea: ✓ BUKRS-only match (fallback)');
+                console.log('findSalesArea: ✓ BUKRS-only match (last resort) Brand=' +
+                           (row3.Brand || 'N/A') + ' VKORG=' + result.vkorg);
                 if (result.vkorg) return result;
             }
         }
