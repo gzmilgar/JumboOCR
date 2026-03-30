@@ -61,20 +61,20 @@ annotate service.OCRLogs with {
     PdfName          @Core.Computed: true
                      @HTML5.CssDefaults: { width: '18rem' };
     MailSubject      @Core.Computed: true;
-    Status           @Core.Computed: true
+    Status           @readonly
                      @HTML5.CssDefaults: { width: '7rem' };
     StatusCriticality @Core.Computed: true
                      @UI.HiddenFilter: true;
-    SalesOrderNumber @Core.Computed: true
+    SalesOrderNumber @readonly
                      @HTML5.CssDefaults: { width: '9rem' };
-    ErrorMessage     @Core.Computed: true
+    ErrorMessage     @readonly
                      @HTML5.CssDefaults: { width: '20rem' };
-    MissingBarcodes  @Core.Computed: true;
-    ItemCount        @Core.Computed: true
+    MissingBarcodes  @readonly;
+    ItemCount        @readonly
                      @HTML5.CssDefaults: { width: '6rem' };
-    CreatedAt        @Core.Computed: true
+    CreatedAt        @readonly
                      @HTML5.CssDefaults: { width: '12rem' };
-    UpdatedAt        @Core.Computed: true;
+    UpdatedAt        @readonly;
     NetAmount        @title: 'Net Amount'
                      @HTML5.CssDefaults: { width: '8rem' };
     GrossAmount      @title: 'Gross Amount'
@@ -120,10 +120,11 @@ annotate service.OCRItems with {
 // ============================================================
 annotate service.OCRLogs with @(
     UI.SelectionFields: [
+        Status,
         PurchaseOrder,
         SalesOrderNumber,
         ProcessName,
-        DocumentDate
+        CreatedAt
     ]
 );
 

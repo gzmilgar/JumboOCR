@@ -14,6 +14,47 @@ function statusCriticality(status) {
     }
 }
 
+// Format S/4HANA date strings: "20260329" → "2026-03-29", "20260329110350" → "2026-03-29 11:03:50"
+function formatS4Date(val) {
+    if (!val || typeof val !== 'string') return val || '';
+    var s = val.replace(/[^0-9]/g, '');
+    if (s.length >= 8) {
+        var d = s.substring(0,4) + '-' + s.substring(4,6) + '-' + s.substring(6,8);
+        if (s.length >= 14) d += ' ' + s.substring(8,10) + ':' + s.substring(10,12) + ':' + s.substring(12,14);
+        return d;
+    }
+    return val;
+}
+
+// Build OData $filter from CDS SELECT.where array
+function buildODataFilter(where) {
+    if (!where || !Array.isArray(where) || where.length === 0) return '';
+    var parts = [];
+    for (var i = 0; i < where.length; i++) {
+        var w = where[i];
+        if (typeof w === 'string') {
+            // 'and', 'or' operators
+            parts.push(w);
+        } else if (w.ref) {
+            // field reference - look for operator + value
+            var field = w.ref[0];
+            var op = where[i+1];
+            var valObj = where[i+2];
+            if (op && valObj && valObj.val !== undefined) {
+                var odataOp = op === '=' ? 'eq' : op === '!=' ? 'ne' : op === '>' ? 'gt' : op === '<' ? 'lt' : op === '>=' ? 'ge' : op === '<=' ? 'le' : op;
+                parts.push(field + " " + odataOp + " '" + valObj.val + "'");
+                i += 2; // skip op and val
+            } else if (op && typeof op === 'string' && op.toLowerCase() === 'like' && valObj && valObj.val !== undefined) {
+                // contains filter
+                var likeVal = String(valObj.val).replace(/%/g, '');
+                parts.push("contains(" + field + ",'" + likeVal + "')");
+                i += 2;
+            }
+        }
+    }
+    return parts.join(' ');
+}
+
 module.exports = class extends cds.ApplicationService { async init() {
 
     // ============================================================
@@ -72,8 +113,8 @@ if (uuid) {
     return [{
         Uuid: r.uuid || '', ProcessName: r.processName || '',
         PdfName: r.pdfName || '', MailSubject: '',
-        PurchaseOrder: r.purchaseOrder || '', DeliveryDate: r.deliveryDate || '',
-        DocumentDate: r.documentDate || '', ReceiverId: r.receiverId || '',
+        PurchaseOrder: r.purchaseOrder || '', DeliveryDate: formatS4Date(r.deliveryDate),
+        DocumentDate: formatS4Date(r.documentDate), ReceiverId: r.receiverId || '',
         CurrencyCode: r.currencyCode || '', NetAmount: parseFloat(r.netAmount) || 0,
         GrossAmount: parseFloat(r.grossAmount) || 0, TotalVat: r.totalVat || '',
         Discount: parseFloat(r.discount) || 0, DeliveryAdress: r.deliveryAdress || '',
@@ -81,7 +122,7 @@ if (uuid) {
         StatusCriticality: statusCriticality(r.status),
         SalesOrderNumber: r.salesOrderNumber || '', ErrorMessage: r.errorMessage || '',
         MissingBarcodes: r.missingBarcodes || '', ItemCount: r.itemCount || 0,
-        CreatedAt: r.createdAt || '', UpdatedAt: r.updatedAt || '',
+        CreatedAt: formatS4Date(r.createdAt), UpdatedAt: formatS4Date(r.updatedAt),
         Items: (r.items || []).map(item => ({
             HeaderId: r.uuid || '',
             ItemNumber: item.ItemNumber || '',
@@ -96,16 +137,23 @@ if (uuid) {
     }];
 }
  else {
+                // Build S/4HANA URL with filter support
+                var s4Url = OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200';
+                var oFilter = buildODataFilter(req.query?.SELECT?.where);
+                if (oFilter) {
+                    s4Url += '&$filter=' + encodeURIComponent(oFilter);
+                    console.log('OCRLogs READ: $filter=' + oFilter);
+                }
                 const response = await executeHttpRequest(
                     { destinationName: 'QS4_HTTPS' },
-                    { method: 'GET', url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
+                    { method: 'GET', url: s4Url,
                       headers: { 'Accept': 'application/json' }, timeout: 30000 }
                 );
                 return (response.data?.value || []).map(r => ({
                     Uuid: r.Uuid || '', ProcessName: r.ProcessName || '',
                     PdfName: r.PdfName || '', MailSubject: r.MailSubject || '',
-                    PurchaseOrder: r.PurchaseOrder || '', DeliveryDate: r.DeliveryDate || '',
-                    DocumentDate: r.DocumentDate || '', ReceiverId: r.ReceiverId || '',
+                    PurchaseOrder: r.PurchaseOrder || '', DeliveryDate: formatS4Date(r.DeliveryDate),
+                    DocumentDate: formatS4Date(r.DocumentDate), ReceiverId: r.ReceiverId || '',
                     CurrencyCode: r.CurrencyCode || '', NetAmount: r.NetAmount || 0,
                     GrossAmount: r.GrossAmount || 0, TotalVat: r.TotalVat || '',
                     Discount: r.Discount || 0, DeliveryAdress: r.DeliveryAdress || '',
@@ -113,7 +161,7 @@ if (uuid) {
                     StatusCriticality: statusCriticality(r.Status),
                     SalesOrderNumber: r.SalesOrderNumber || '', ErrorMessage: r.ErrorMessage || '',
                     MissingBarcodes: r.MissingBarcodes || '', ItemCount: r.ItemCount || 0,
-                    CreatedAt: r.CreatedAt || '', UpdatedAt: r.UpdatedAt || ''
+                    CreatedAt: formatS4Date(r.CreatedAt), UpdatedAt: formatS4Date(r.UpdatedAt)
                 }));
             }
         } catch (e) {
@@ -577,16 +625,18 @@ this.on('updatePOLogData', async (req) => {
             }
 
             var itemPatch = {};
-            if (item.barcode   !== undefined) itemPatch.Barcode    = item.barcode              || '';
-            if (item.quantity  !== undefined) itemPatch.Quantity   = parseFloat(item.quantity)  || 0;
-            if (item.unitPrice !== undefined) itemPatch.UnitPrice  = parseFloat(item.unitPrice) || 0;
-            if (item.discount  !== undefined) itemPatch.Discount   = parseFloat(item.discount)  || 0;
+            if (item.barcode        !== undefined) itemPatch.Barcode        = item.barcode              || '';
+            if (item.materialNumber !== undefined) itemPatch.MaterialNumber = item.materialNumber        || '';
+            if (item.quantity       !== undefined) itemPatch.Quantity       = parseFloat(item.quantity)  || 0;
+            if (item.unitPrice      !== undefined) itemPatch.UnitPrice     = parseFloat(item.unitPrice) || 0;
+            if (item.discount       !== undefined) itemPatch.Discount      = parseFloat(item.discount)  || 0;
 
-            // camelCase de gelebilir kontrol et
-            if (item.Barcode    !== undefined) itemPatch.Barcode   = item.Barcode              || '';
-            if (item.Quantity   !== undefined) itemPatch.Quantity  = parseFloat(item.Quantity)  || 0;
-            if (item.UnitPrice  !== undefined) itemPatch.UnitPrice = parseFloat(item.UnitPrice) || 0;
-            if (item.Discount   !== undefined) itemPatch.Discount  = parseFloat(item.Discount)  || 0;
+            // PascalCase de gelebilir kontrol et
+            if (item.Barcode        !== undefined) itemPatch.Barcode        = item.Barcode              || '';
+            if (item.MaterialNumber !== undefined) itemPatch.MaterialNumber = item.MaterialNumber        || '';
+            if (item.Quantity       !== undefined) itemPatch.Quantity       = parseFloat(item.Quantity)  || 0;
+            if (item.UnitPrice      !== undefined) itemPatch.UnitPrice     = parseFloat(item.UnitPrice) || 0;
+            if (item.Discount       !== undefined) itemPatch.Discount      = parseFloat(item.Discount)  || 0;
 
             if (Object.keys(itemPatch).length > 0) {
                 var itemUrl = "OCRLogItem(HeaderId=" + uuid + 
