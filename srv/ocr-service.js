@@ -377,6 +377,8 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             var minData = {
                 purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
                 documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
+                currencyCode: logEntry.currencyCode, netAmount: logEntry.netAmount,
+                grossAmount: logEntry.grossAmount, discount: logEntry.discount,
                 deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress, taxId: logEntry.taxId,
                 lineItems: logEntry.items.map(function(i) {
                     return { barcode: i.Barcode||'', quantity: String(i.Quantity||''), unitPrice: String(i.UnitPrice||''),
@@ -746,7 +748,7 @@ this.on('updatePOLogData', async (req) => {
         if (!soldToParty) {
             return {
                 salesOrderNumber: null,
-                message: 'SoldToParty not found. Hatalar: ' + errors.join('; '),
+                message: 'SoldToParty not found. Errors: ' + errors.join('; '),
                 success: false,
                 itemCount: 0,
                 missingBarcodes: barcodeReport.missing.join(',')
@@ -1075,6 +1077,10 @@ async function s4Patch(entityWithKey, body) {
                 receiverId:         w(minData.receiverId),
                 taxId:              w(minData.taxId),
                 documentDate:       w(minData.documentDate),
+                currencyCode:       w(minData.currencyCode),
+                netAmount:          w(minData.netAmount),
+                grossAmount:        w(minData.grossAmount),
+                discount:           w(minData.discount),
                 deliveryName:       w(minData.deliveryName),
                 deliveryPhone:      w(minData.deliveryPhone),
                 deliveryCity:       w(minData.deliveryCity),
