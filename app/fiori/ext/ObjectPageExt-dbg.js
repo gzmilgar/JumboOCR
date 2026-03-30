@@ -43,13 +43,16 @@ sap.ui.define([
                         var obj = ctx.getObject();
                         return {
                             itemNumber: obj.ItemNumber || "",
+                            barcode: obj.Barcode || "",
                             description: obj.Description || "",
+                            materialNumber: obj.MaterialNumber || "",
                             unitPrice: obj.UnitPrice != null ? String(obj.UnitPrice) : "0",
                             discount: obj.Discount != null ? String(obj.Discount) : "0"
                         };
                     });
 
                     var oEditModel = new JSONModel({
+                        purchaseOrder: oData.PurchaseOrder || "",
                         netAmount: oData.NetAmount != null ? String(oData.NetAmount) : "0",
                         grossAmount: oData.GrossAmount != null ? String(oData.GrossAmount) : "0",
                         currencyCode: oData.CurrencyCode || "",
@@ -66,6 +69,8 @@ sap.ui.define([
                         labelSpanM: 4,
                         labelSpanS: 12,
                         content: [
+                            new Label({ text: "Purchase Order" }),
+                            new Input({ value: "{edit>/purchaseOrder}" }),
                             new Label({ text: "Net Amount" }),
                             new Input({ value: "{edit>/netAmount}", type: "Number" }),
                             new Label({ text: "Gross Amount" }),
@@ -82,7 +87,9 @@ sap.ui.define([
                     var oItemTemplate = new ColumnListItem({
                         cells: [
                             new Text({ text: "{edit>itemNumber}" }),
+                            new Input({ value: "{edit>barcode}" }),
                             new Text({ text: "{edit>description}" }),
+                            new Input({ value: "{edit>materialNumber}" }),
                             new Input({ value: "{edit>unitPrice}", type: "Number" }),
                             new Input({ value: "{edit>discount}", type: "Number" })
                         ]
@@ -91,8 +98,10 @@ sap.ui.define([
                     var oItemsTable = new Table({
                         headerText: "Items",
                         columns: [
-                            new Column({ header: new Text({ text: "Item No" }) }),
+                            new Column({ header: new Text({ text: "Item No" }), width: "5rem" }),
+                            new Column({ header: new Text({ text: "Barcode" }) }),
                             new Column({ header: new Text({ text: "Description" }) }),
+                            new Column({ header: new Text({ text: "Material" }) }),
                             new Column({ header: new Text({ text: "Unit Price" }) }),
                             new Column({ header: new Text({ text: "Discount" }) })
                         ]
@@ -131,6 +140,7 @@ sap.ui.define([
                                         body: JSON.stringify({
                                             uuid: oData.Uuid,
                                             headerData: JSON.stringify({
+                                                purchaseOrder: editData.purchaseOrder,
                                                 netAmount: editData.netAmount,
                                                 grossAmount: editData.grossAmount,
                                                 currencyCode: editData.currencyCode,
@@ -141,6 +151,8 @@ sap.ui.define([
                                                 editData.items.map(function (item) {
                                                     return {
                                                         itemNumber: item.itemNumber,
+                                                        barcode: item.barcode,
+                                                        materialNumber: item.materialNumber,
                                                         unitPrice: item.unitPrice,
                                                         discount: item.discount
                                                     };
