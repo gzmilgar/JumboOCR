@@ -71,10 +71,6 @@ service OCRService {
         message : String;
     };
 
-    action deletePOLog(uuid : String) returns {
-        success : Boolean;
-        message : String;
-    };
 
     action triggerLog(uuid : String) returns {
         success    : Boolean;
@@ -82,16 +78,6 @@ service OCRService {
         salesOrder : String;
     };
 
-    action triggerOCR(
-        uuid        : String,
-        pdfContent  : String,
-        pdfName     : String,
-        mailSubject : String
-    ) returns {
-        success : Boolean;
-        message : String;
-        uuid    : String;
-    };
 
     // ==========================================
     // Entities
