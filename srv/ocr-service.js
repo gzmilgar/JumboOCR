@@ -1240,6 +1240,39 @@ async function s4Patch(entityWithKey, body) {
     }
 
     // ============================================================
+    // LOOKUP MATERIAL SALES AREA from A_ProductSalesDelivery
+    // ============================================================
+    async function lookupMaterialSalesArea(material) {
+        if (!material) return [];
+        try {
+            var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_ProductSalesDelivery"
+                + "?$filter=" + encodeURIComponent("Product eq '" + material + "'")
+                + "&$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision"
+                + "&$format=json";
+            var response = await executeHttpRequest(
+                { destinationName: 'QS4_HTTPS' },
+                { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+            );
+            var results = response.data?.d?.results || [];
+            console.log('lookupMaterialSalesArea: Material=' + material + ' found ' + results.length + ' sales areas');
+            var salesAreas = [];
+            for (var i = 0; i < results.length; i++) {
+                var sa = {
+                    vkorg: String(results[i].ProductSalesOrg || '').trim(),
+                    vtweg: String(results[i].ProductDistributionChnl || '').trim(),
+                    spart: String(results[i].ProductDivision || '').trim()
+                };
+                console.log('  SalesArea[' + i + ']: VKORG=' + sa.vkorg + ' VTWEG=' + sa.vtweg + ' SPART=' + sa.spart);
+                salesAreas.push(sa);
+            }
+            return salesAreas;
+        } catch (e) {
+            console.error('lookupMaterialSalesArea error: ' + e.message);
+            return [];
+        }
+    }
+
+    // ============================================================
     // GET SOLD-TO COMPANY CODE
     // ============================================================
     async function getSoldToCompanyCode(soldToParty, allowedBukrs) {
@@ -1401,9 +1434,49 @@ async function s4Patch(entityWithKey, body) {
             }
         }
 
-        var salesAreaMatch = findSalesArea(salesAreaList, companyCode, matkl_fam, firstBrand);
-        console.log('SalesArea for BUKRS=' + companyCode + ' MATKL_FAM=' + (matkl_fam || 'N/A') +
-                   ' → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
+        // Look up actual sales areas for the material from S/4HANA
+        var materialSalesAreas = [];
+        if (firstMaterial) {
+            materialSalesAreas = await lookupMaterialSalesArea(firstMaterial);
+        }
+
+        // Try to match material's actual sales area against salesAreaMap
+        var salesAreaMatch = { vkorg: '', vtweg: '', spart: '', plant: '' };
+        if (materialSalesAreas.length > 0 && salesAreaList.length > 0) {
+            for (var sa = 0; sa < materialSalesAreas.length; sa++) {
+                var matSA = materialSalesAreas[sa];
+                for (var sl = 0; sl < salesAreaList.length; sl++) {
+                    var row = salesAreaList[sl];
+                    var rowVkorg = String(row.Vkorg || row.VKORG || '').trim();
+                    var rowVtweg = String(row.Vtweg || row.VTWEG || '').trim();
+                    if (rowVkorg === matSA.vkorg && rowVtweg === matSA.vtweg) {
+                        salesAreaMatch.vkorg = rowVkorg;
+                        salesAreaMatch.vtweg = rowVtweg;
+                        salesAreaMatch.spart = String(row.Spart || row.SPART || '').trim() || matSA.spart;
+                        salesAreaMatch.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
+                        console.log('buildPayload: ✓ MATERIAL SALES AREA MATCH → VKORG=' + salesAreaMatch.vkorg +
+                                   ' VTWEG=' + salesAreaMatch.vtweg + ' SPART=' + salesAreaMatch.spart +
+                                   ' Plant=' + salesAreaMatch.plant + ' (from salesAreaMap row ' + sl + ')');
+                        break;
+                    }
+                }
+                if (salesAreaMatch.vkorg) break;
+            }
+            // If no match in salesAreaMap, use material's first sales area directly
+            if (!salesAreaMatch.vkorg && materialSalesAreas.length > 0) {
+                salesAreaMatch.vkorg = materialSalesAreas[0].vkorg;
+                salesAreaMatch.vtweg = materialSalesAreas[0].vtweg;
+                salesAreaMatch.spart = materialSalesAreas[0].spart;
+                console.log('buildPayload: Using material sales area directly (no salesAreaMap match) → VKORG=' +
+                           salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg);
+            }
+        }
+
+        // Fallback to old logic if material sales area lookup didn't work
+        if (!salesAreaMatch.vkorg) {
+            salesAreaMatch = findSalesArea(salesAreaList, companyCode, matkl_fam, firstBrand);
+        }
+        console.log('SalesArea FINAL → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
                    ' SPART:' + salesAreaMatch.spart + ' Plant:' + salesAreaMatch.plant);
 
         var itemsArray = [];
