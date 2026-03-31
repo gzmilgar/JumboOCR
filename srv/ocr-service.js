@@ -455,6 +455,17 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 }
             }
 
+            // If shipToAndSalesArea is empty/missing, lookup automatically
+            var hasShipTo = stsa.shipToPartners && stsa.shipToPartners !== '[]';
+            var hasSalesArea = stsa.salesAreaMap && stsa.salesAreaMap !== '[]';
+            if (!hasShipTo || !hasSalesArea) {
+                console.log('[' + processName + '] shipToAndSalesArea missing or empty, calling _lookupShipToAndSalesArea...');
+                var stsaResult = await _lookupShipToAndSalesArea(processName);
+                console.log('[' + processName + '] STSA lookup: success=' + stsaResult.success + ' msg=' + stsaResult.message);
+                if (!hasShipTo && stsaResult.shipToPartners) stsa.shipToPartners = stsaResult.shipToPartners;
+                if (!hasSalesArea && stsaResult.salesAreaMap) stsa.salesAreaMap = stsaResult.salesAreaMap;
+            }
+
             var minData = extractMinimalData(data);
             logUuid = await autoSavePOLog({
                 processName:    processName,
