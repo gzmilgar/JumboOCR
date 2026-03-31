@@ -361,60 +361,80 @@ this.on('UPDATE', 'OCRItems', async (req) => {
 });
 
     // ============================================================
-    // triggerLog - Unbound action (uuid as parameter)
+    // SHARED: _executeSalesOrderCreation
+    // Single function used by both triggerLog and processAndCreateSalesOrder
+    // ============================================================
+    async function _executeSalesOrderCreation(uuid, processName) {
+        // 1. Read log data from S/4HANA
+        var logEntry = await s4GetPOLog(uuid);
+        if (!logEntry) throw new Error('POLog not found: ' + uuid);
+        processName = processName || logEntry.processName || 'Unknown';
+        console.log('[' + processName + '] _execute: PO=' + logEntry.purchaseOrder + ' items=' + logEntry.items.length);
+
+        // 2. Get STSA via cache
+        var stsaResult = await getCachedStsa(processName);
+        console.log('[' + processName + '] STSA: success=' + stsaResult.success + ' msg=' + stsaResult.message);
+        var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
+
+        // 3. Build data from log entry
+        var minData = {
+            purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
+            documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
+            currencyCode: logEntry.currencyCode, netAmount: logEntry.netAmount,
+            grossAmount: logEntry.grossAmount, discount: logEntry.discount,
+            deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress, taxId: logEntry.taxId,
+            lineItems: logEntry.items.map(function(i) {
+                return { barcode: i.Barcode||'', quantity: String(i.Quantity||''), unitPrice: String(i.UnitPrice||''),
+                         discount: String(i.Discount||''), itemNumber: i.ItemNumber||'', description: i.Description||'',
+                         materialNumber: i.MaterialNumber||'' };
+            })
+        };
+        var data = wrapForBuildPayload(minData);
+
+        // 4. Update status to RETRYING
+        await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+
+        // 5. Process sales order
+        console.log('[' + processName + '] Calling _processSalesOrder...');
+        var result = await _processSalesOrder(data, stsa, processName);
+        console.log('[' + processName + '] Result: success=' + result.success + ' SO=' + result.salesOrderNumber + ' msg=' + result.message);
+
+        // 6. Update log with result
+        await autoUpdatePOLog(uuid, result.success ? 'SUCCESS' : 'FAILED',
+            result.salesOrderNumber || '', result.success ? '' : (result.message || ''),
+            result.itemCount || 0, result.missingBarcodes || '');
+
+        return result;
+    }
+
+    // ============================================================
+    // SHARED: extractErrorMessage from S/4HANA error
+    // ============================================================
+    function extractErrorMessage(e) {
+        if (e.response?.data?.error?.message?.value) return e.response.data.error.message.value;
+        if (e.response?.data?.error?.innererror?.errordetails) {
+            return e.response.data.error.innererror.errordetails.map(function(d) { return d.message; }).join('; ');
+        }
+        if (e.response?.data?.error?.message) {
+            return typeof e.response.data.error.message === 'string'
+                ? e.response.data.error.message : JSON.stringify(e.response.data.error.message);
+        }
+        return e.message || 'Unknown error';
+    }
+
+    // ============================================================
+    // triggerLog - calls shared _executeSalesOrderCreation
     // ============================================================
     this.on('triggerLog', async (req) => {
         var uuid = req.data?.uuid;
         console.log('=== triggerLog called: uuid=' + uuid + ' ===');
         try {
             if (!uuid) return { success: false, message: 'UUID is required', salesOrder: '' };
-            var logEntry = await s4GetPOLog(uuid);
-            if (!logEntry) {
-                console.log('triggerLog: POLog not found for uuid=' + uuid);
-                return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
-            }
-            console.log('triggerLog: processName=' + logEntry.processName + ' PO=' + logEntry.purchaseOrder + ' items=' + logEntry.items.length);
-
-            var stsaResult = await getCachedStsa(logEntry.processName);
-            console.log('triggerLog: STSA success=' + stsaResult.success + ' msg=' + stsaResult.message);
-            var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
-            var minData = {
-                purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
-                documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
-                currencyCode: logEntry.currencyCode, netAmount: logEntry.netAmount,
-                grossAmount: logEntry.grossAmount, discount: logEntry.discount,
-                deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress, taxId: logEntry.taxId,
-                lineItems: logEntry.items.map(function(i) {
-                    return { barcode: i.Barcode||'', quantity: String(i.Quantity||''), unitPrice: String(i.UnitPrice||''),
-                             discount: String(i.Discount||''), itemNumber: i.ItemNumber||'', description: i.Description||'',
-                             materialNumber: i.MaterialNumber||'' };
-                })
-            };
-            var data = wrapForBuildPayload(minData);
-            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
-            console.log('triggerLog: calling _processSalesOrder...');
-            var result = await _processSalesOrder(data, stsa, logEntry.processName);
-            console.log('triggerLog: result success=' + result.success + ' SO=' + result.salesOrderNumber + ' msg=' + result.message);
-            await autoUpdatePOLog(uuid, result.success?'SUCCESS':'FAILED',
-                result.salesOrderNumber||'', result.success?'':(result.message||''),
-                result.itemCount||0, result.missingBarcodes||'');
-            return { success: result.success, message: result.message||'Sales order creation failed', salesOrder: result.salesOrderNumber||'' };
+            var result = await _executeSalesOrderCreation(uuid, null);
+            return { success: result.success, message: result.message || 'Sales order creation failed', salesOrder: result.salesOrderNumber || '' };
         } catch (e) {
             console.error('triggerLog error: ' + e.message);
-            console.error('triggerLog stack: ' + e.stack);
-            // Extract detailed S/4HANA error message
-            var errorMsg = e.message || 'Unknown error';
-            if (e.response?.data?.error?.message?.value) {
-                errorMsg = e.response.data.error.message.value;
-            } else if (e.response?.data?.error?.innererror?.errordetails) {
-                errorMsg = e.response.data.error.innererror.errordetails
-                    .map(function (d) { return d.message; }).join('; ');
-            } else if (e.response?.data?.error?.message) {
-                errorMsg = typeof e.response.data.error.message === 'string'
-                    ? e.response.data.error.message
-                    : JSON.stringify(e.response.data.error.message);
-            }
-            console.error('triggerLog errorMsg: ' + errorMsg);
+            var errorMsg = extractErrorMessage(e);
             try { await autoUpdatePOLog(uuid, 'FAILED', '', errorMsg, 0, ''); } catch (e2) {}
             return { success: false, message: errorMsg, salesOrder: '' };
         }
@@ -435,7 +455,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     });
 
     // ============================================================
-    // 2) processAndCreateSalesOrder
+    // 2) processAndCreateSalesOrder - saves log then calls shared function
     // ============================================================
     this.on('processAndCreateSalesOrder', async (req) => {
         var processName = req.data.processName || 'Unknown';
@@ -450,26 +470,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 data = req.data.extractedData;
             }
 
-            var stsa = {};
-            if (req.data.shipToAndSalesArea) {
-                if (typeof req.data.shipToAndSalesArea === 'string') {
-                    stsa = JSON.parse(req.data.shipToAndSalesArea);
-                } else {
-                    stsa = req.data.shipToAndSalesArea;
-                }
-            }
-
-            // If shipToAndSalesArea is empty/missing, lookup with cache
-            var hasShipTo = stsa.shipToPartners && stsa.shipToPartners !== '[]';
-            var hasSalesArea = stsa.salesAreaMap && stsa.salesAreaMap !== '[]';
-            if (!hasShipTo || !hasSalesArea) {
-                console.log('[' + processName + '] shipToAndSalesArea missing or empty, using cached lookup...');
-                var stsaResult = await getCachedStsa(processName);
-                console.log('[' + processName + '] STSA result: success=' + stsaResult.success + ' msg=' + stsaResult.message);
-                if (!hasShipTo && stsaResult.shipToPartners) stsa.shipToPartners = stsaResult.shipToPartners;
-                if (!hasSalesArea && stsaResult.salesAreaMap) stsa.salesAreaMap = stsaResult.salesAreaMap;
-            }
-
+            // Save log to S/4HANA first
             var minData = extractMinimalData(data);
             logUuid = await autoSavePOLog({
                 processName:    processName,
@@ -489,29 +490,13 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 lineItems:      minData.lineItems
             });
 
-            var result = await _processSalesOrder(data, stsa, processName);
-
-            if (logUuid) {
-                await autoUpdatePOLog(logUuid,
-                    result.success ? 'SUCCESS' : 'FAILED',
-                    result.salesOrderNumber || '',
-                    result.success ? '' : (result.message || ''),
-                    result.itemCount || 0,
-                    result.missingBarcodes || '');
-            }
+            // Use the SAME shared function as triggerLog
+            var result = await _executeSalesOrderCreation(logUuid, processName);
             return result;
 
         } catch (error) {
             console.error('[' + processName + '] ERROR: ' + error.message);
-            var errorMsg = 'Unknown error';
-            if (error.response?.data?.error?.message?.value) {
-                errorMsg = error.response.data.error.message.value;
-            } else if (error.response?.data?.error?.innererror?.errordetails) {
-                errorMsg = error.response.data.error.innererror.errordetails
-                    .map(function (d) { return d.message; }).join('; ');
-            } else if (error.message) {
-                errorMsg = error.message;
-            }
+            var errorMsg = extractErrorMessage(error);
             if (logUuid) await autoUpdatePOLog(logUuid, 'FAILED', '', errorMsg, 0, '');
             return {
                 salesOrderNumber: null,
