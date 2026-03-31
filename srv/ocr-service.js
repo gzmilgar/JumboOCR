@@ -4,6 +4,10 @@ const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 var OCR_BASE = '/sap/opu/odata4/sap/zsdocr_sb_log_o4/srvd/sap/zsd_ocr_log_srv/0001/';
 
+// STSA cache - keyed by processName, TTL 10 minutes
+var _stsaCache = {};
+var STSA_CACHE_TTL = 10 * 60 * 1000;
+
 function statusCriticality(status) {
     switch ((status || '').toUpperCase()) {
         case 'SUCCESS':  return 3; // Positive (green)
@@ -371,7 +375,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
             }
             console.log('triggerLog: processName=' + logEntry.processName + ' PO=' + logEntry.purchaseOrder + ' items=' + logEntry.items.length);
 
-            var stsaResult = await _lookupShipToAndSalesArea(logEntry.processName);
+            var stsaResult = await getCachedStsa(logEntry.processName);
             console.log('triggerLog: STSA success=' + stsaResult.success + ' msg=' + stsaResult.message);
             var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
             var minData = {
@@ -455,13 +459,13 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 }
             }
 
-            // If shipToAndSalesArea is empty/missing, lookup automatically
+            // If shipToAndSalesArea is empty/missing, lookup with cache
             var hasShipTo = stsa.shipToPartners && stsa.shipToPartners !== '[]';
             var hasSalesArea = stsa.salesAreaMap && stsa.salesAreaMap !== '[]';
             if (!hasShipTo || !hasSalesArea) {
-                console.log('[' + processName + '] shipToAndSalesArea missing or empty, calling _lookupShipToAndSalesArea...');
-                var stsaResult = await _lookupShipToAndSalesArea(processName);
-                console.log('[' + processName + '] STSA lookup: success=' + stsaResult.success + ' msg=' + stsaResult.message);
+                console.log('[' + processName + '] shipToAndSalesArea missing or empty, using cached lookup...');
+                var stsaResult = await getCachedStsa(processName);
+                console.log('[' + processName + '] STSA result: success=' + stsaResult.success + ' msg=' + stsaResult.message);
                 if (!hasShipTo && stsaResult.shipToPartners) stsa.shipToPartners = stsaResult.shipToPartners;
                 if (!hasSalesArea && stsaResult.salesAreaMap) stsa.salesAreaMap = stsaResult.salesAreaMap;
             }
@@ -882,6 +886,25 @@ this.on('updatePOLogData', async (req) => {
             success: true,
             message: 'ShipTo: ' + shipToResults.length + ' records, SalesArea: ' + salesAreaResults.length + ' records'
         };
+    }
+
+    // ============================================================
+    // CACHED STSA LOOKUP - avoids repeated S/4HANA calls for same processName
+    // ============================================================
+    async function getCachedStsa(processName) {
+        var key = (processName || '').trim();
+        var cached = _stsaCache[key];
+        if (cached && (Date.now() - cached.timestamp) < STSA_CACHE_TTL) {
+            console.log('STSA cache HIT for: ' + key + ' (age: ' + Math.round((Date.now() - cached.timestamp) / 1000) + 's)');
+            return cached.data;
+        }
+        console.log('STSA cache MISS for: ' + key + ', calling S/4HANA...');
+        var result = await _lookupShipToAndSalesArea(key);
+        if (result.success) {
+            _stsaCache[key] = { data: result, timestamp: Date.now() };
+            console.log('STSA cached for: ' + key);
+        }
+        return result;
     }
 
     // ============================================================
