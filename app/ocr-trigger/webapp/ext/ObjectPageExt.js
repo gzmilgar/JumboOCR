@@ -34,6 +34,7 @@ sap.ui.define([
                     return {
                         itemNumber: obj.ItemNumber || "",
                         description: obj.Description || "",
+                        quantity: obj.Quantity != null ? String(obj.Quantity) : "0",
                         unitPrice: obj.UnitPrice != null ? String(obj.UnitPrice) : "0",
                         discount: obj.Discount != null ? String(obj.Discount) : "0"
                     };
@@ -73,6 +74,7 @@ sap.ui.define([
                     cells: [
                         new Text({ text: "{edit>itemNumber}" }),
                         new Text({ text: "{edit>description}" }),
+                        new Input({ value: "{edit>quantity}", type: "Number" }),
                         new Input({ value: "{edit>unitPrice}", type: "Number" }),
                         new Input({ value: "{edit>discount}", type: "Number" })
                     ]
@@ -83,6 +85,7 @@ sap.ui.define([
                     columns: [
                         new Column({ header: new Text({ text: "Item No" }) }),
                         new Column({ header: new Text({ text: "Description" }) }),
+                        new Column({ header: new Text({ text: "Qty" }) }),
                         new Column({ header: new Text({ text: "Unit Price" }) }),
                         new Column({ header: new Text({ text: "Discount" }) })
                     ]
@@ -103,37 +106,57 @@ sap.ui.define([
                         type: "Emphasized",
                         press: function () {
                             var editData = oEditModel.getData();
+                            var sServiceUrl = oModel.getServiceUrl();
 
-                            var oActionBinding = oModel.bindContext("/updatePOLogData(...)");
-                            oActionBinding.setParameter("uuid", oData.Uuid);
-                            oActionBinding.setParameter("headerData", JSON.stringify({
-                                netAmount: editData.netAmount,
-                                grossAmount: editData.grossAmount,
-                                currencyCode: editData.currencyCode,
-                                deliveryAdress: editData.deliveryAdress,
-                                vendorAdress: editData.vendorAdress
-                            }));
-                            oActionBinding.setParameter("itemsData", JSON.stringify(
-                                editData.items.map(function (item) {
-                                    return {
-                                        itemNumber: item.itemNumber,
-                                        unitPrice: item.unitPrice,
-                                        discount: item.discount
-                                    };
-                                })
-                            ));
-
-                            oActionBinding.execute().then(function () {
-                                var oResult = oActionBinding.getBoundContext().getObject();
-                                if (oResult.success) {
+                            // First fetch CSRF token, then POST
+                            fetch(sServiceUrl, {
+                                method: "HEAD",
+                                headers: { "X-Csrf-Token": "Fetch" }
+                            })
+                            .then(function (tokenResponse) {
+                                var sCsrfToken = tokenResponse.headers.get("X-Csrf-Token");
+                                return fetch(sServiceUrl + "updatePOLogData", {
+                                    method: "POST",
+                                    headers: {
+                                        "Content-Type": "application/json",
+                                        "X-Csrf-Token": sCsrfToken
+                                    },
+                                    body: JSON.stringify({
+                                        uuid: oData.Uuid,
+                                        headerData: JSON.stringify({
+                                            netAmount: editData.netAmount,
+                                            grossAmount: editData.grossAmount,
+                                            currencyCode: editData.currencyCode,
+                                            deliveryAdress: editData.deliveryAdress,
+                                            vendorAdress: editData.vendorAdress
+                                        }),
+                                        itemsData: JSON.stringify(
+                                            editData.items.map(function (item) {
+                                                return {
+                                                    itemNumber: item.itemNumber,
+                                                    quantity: item.quantity,
+                                                    unitPrice: item.unitPrice,
+                                                    discount: item.discount
+                                                };
+                                            })
+                                        )
+                                    })
+                                });
+                            })
+                            .then(function (response) {
+                                return response.json();
+                            })
+                            .then(function (result) {
+                                if (result.success) {
                                     MessageToast.show("Operation Successful");
                                     oBindingContext.refresh();
                                     oDialog.close();
                                 } else {
-                                    MessageToast.show("Save failed: " + (oResult.message || "Unknown error"));
+                                    MessageToast.show("Save failed: " + (result.message || "Unknown error"));
                                 }
-                            }).catch(function (oError) {
-                                MessageToast.show("Save failed: " + oError.message);
+                            })
+                            .catch(function (error) {
+                                MessageToast.show("Save failed: " + error.message);
                             });
                         }
                     }),

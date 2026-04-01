@@ -137,30 +137,6 @@
             "settings": {
               "contextPath": "/OCRLogs",
               "editableHeaderContent": false,
-              "content": {
-                "header": {
-                  "actions": {
-                    "editDetails": {
-                      "press": "com.jumbo.ocr.ocrtrigger.ext.ObjectPageExt.onEditPress",
-                      "visible": true,
-                      "enabled": true,
-                      "text": "Edit"
-                    }
-                  }
-                },
-                "body": {
-                  "sections": {
-                    "editSection": {
-                      "template": "com.jumbo.ocr.ocrtrigger.ext.EditSection",
-                      "title": "Actions",
-                      "position": {
-                        "placement": "Before",
-                        "anchor": "GeneralInfo"
-                      }
-                    }
-                  }
-                }
-              },
               "navigation": {},
               "controlConfiguration": {
                 "Items/@com.sap.vocabularies.UI.v1.LineItem": {
