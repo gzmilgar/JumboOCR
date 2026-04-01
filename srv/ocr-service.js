@@ -1247,32 +1247,42 @@ async function s4Patch(entityWithKey, body) {
     // ============================================================
     async function lookupMaterialSalesArea(material) {
         if (!material) return [];
-        try {
-            // Use navigation property from A_Product to avoid 404 on direct A_ProductSalesDelivery access
-            var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('" + encodeURIComponent(material) + "')/to_SalesDelivery"
-                + "?$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision"
-                + "&$format=json";
-            var response = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
-            );
-            var results = response.data?.d?.results || [];
-            console.log('lookupMaterialSalesArea: Material=' + material + ' found ' + results.length + ' sales areas');
-            var salesAreas = [];
-            for (var i = 0; i < results.length; i++) {
-                var sa = {
-                    vkorg: String(results[i].ProductSalesOrg || '').trim(),
-                    vtweg: String(results[i].ProductDistributionChnl || '').trim(),
-                    spart: String(results[i].ProductDivision || '').trim()
-                };
-                console.log('  SalesArea[' + i + ']: VKORG=' + sa.vkorg + ' VTWEG=' + sa.vtweg + ' SPART=' + sa.spart);
-                salesAreas.push(sa);
+        // Try multiple URL patterns - different S/4HANA versions expose different endpoints
+        var urls = [
+            "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('" + encodeURIComponent(material) + "')/to_SalesDelivery"
+                + "?$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision&$format=json",
+            "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('" + encodeURIComponent(material) + "')/to_ProductSalesDelivery"
+                + "?$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision&$format=json",
+            "/sap/opu/odata/sap/API_PRODUCT_SRV/A_ProductSalesDelivery"
+                + "?$filter=" + encodeURIComponent("Product eq '" + material + "'")
+                + "&$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision&$format=json"
+        ];
+        for (var u = 0; u < urls.length; u++) {
+            try {
+                console.log('lookupMaterialSalesArea: trying URL pattern ' + (u + 1) + '/' + urls.length);
+                var response = await executeHttpRequest(
+                    { destinationName: 'QS4_HTTPS' },
+                    { method: 'GET', url: urls[u], headers: { 'Accept': 'application/json' }, timeout: 30000 }
+                );
+                var results = response.data?.d?.results || [];
+                console.log('lookupMaterialSalesArea: Material=' + material + ' found ' + results.length + ' sales areas (pattern ' + (u + 1) + ')');
+                var salesAreas = [];
+                for (var i = 0; i < results.length; i++) {
+                    var sa = {
+                        vkorg: String(results[i].ProductSalesOrg || '').trim(),
+                        vtweg: String(results[i].ProductDistributionChnl || '').trim(),
+                        spart: String(results[i].ProductDivision || '').trim()
+                    };
+                    console.log('  SalesArea[' + i + ']: VKORG=' + sa.vkorg + ' VTWEG=' + sa.vtweg + ' SPART=' + sa.spart);
+                    salesAreas.push(sa);
+                }
+                return salesAreas;
+            } catch (e) {
+                console.warn('lookupMaterialSalesArea: pattern ' + (u + 1) + ' failed: ' + e.message);
             }
-            return salesAreas;
-        } catch (e) {
-            console.error('lookupMaterialSalesArea error: ' + e.message);
-            return [];
         }
+        console.error('lookupMaterialSalesArea: all URL patterns failed for material ' + material);
+        return [];
     }
 
     // ============================================================
@@ -1536,45 +1546,74 @@ async function s4Patch(entityWithKey, body) {
                     }
                 }
                 if (!isValid) {
+                    var brandUC = (firstBrand || '').trim().toUpperCase();
+                    var custSAList = customerSalesAreas.map(function(c) { return c.vkorg + '/' + c.vtweg + '/' + c.spart; }).join(', ');
                     console.warn('buildPayload: ✗ Customer ' + soldToParty + ' NOT assigned to ' +
                                 salesAreaMatch.vkorg + '/' + salesAreaMatch.vtweg +
-                                '. Searching for valid alternative...');
-                    // Try to find an alternative sales area the customer IS assigned to
-                    // that also exists in our salesAreaMap
+                                '. Customer sales areas: [' + custSAList + ']. Searching for valid alternative with brand=' + brandUC + '...');
+
+                    // Priority 1: Find intersection of customer SA + salesAreaMap with SAME BRAND
                     var foundAlt = false;
-                    for (var ca = 0; ca < customerSalesAreas.length && !foundAlt; ca++) {
-                        var custSA = customerSalesAreas[ca];
-                        for (var sl2 = 0; sl2 < salesAreaList.length; sl2++) {
-                            var mapRow = salesAreaList[sl2];
-                            var mapVkorg = String(mapRow.Vkorg || mapRow.VKORG || '').trim();
-                            var mapVtweg = String(mapRow.Vtweg || mapRow.VTWEG || '').trim();
-                            var mapBukrs = String(mapRow.Bukrs || mapRow.BUKRS || '').trim();
-                            if (custSA.vkorg === mapVkorg && custSA.vtweg === mapVtweg &&
-                                (!companyCode || mapBukrs === companyCode)) {
-                                salesAreaMatch.vkorg = mapVkorg;
-                                salesAreaMatch.vtweg = mapVtweg;
-                                salesAreaMatch.spart = custSA.spart || String(mapRow.Spart || mapRow.SPART || '').trim();
-                                salesAreaMatch.plant = String(mapRow.Site || mapRow.SITE || mapRow.Werks || mapRow.WERKS || '').trim();
-                                console.log('buildPayload: ✓ Found valid alternative sales area → VKORG=' +
-                                           salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg +
-                                           ' SPART=' + salesAreaMatch.spart + ' Plant=' + salesAreaMatch.plant);
-                                foundAlt = true;
-                                break;
+                    if (brandUC) {
+                        for (var ca = 0; ca < customerSalesAreas.length && !foundAlt; ca++) {
+                            var custSA = customerSalesAreas[ca];
+                            for (var sl2 = 0; sl2 < salesAreaList.length; sl2++) {
+                                var mapRow = salesAreaList[sl2];
+                                var mapVkorg = String(mapRow.Vkorg || mapRow.VKORG || '').trim();
+                                var mapVtweg = String(mapRow.Vtweg || mapRow.VTWEG || '').trim();
+                                var mapBukrs = String(mapRow.Bukrs || mapRow.BUKRS || '').trim();
+                                var mapBrand = String(mapRow.Brand || mapRow.BRAND || '').trim().toUpperCase();
+                                if (custSA.vkorg === mapVkorg && custSA.vtweg === mapVtweg &&
+                                    mapBrand === brandUC &&
+                                    (!companyCode || mapBukrs === companyCode)) {
+                                    salesAreaMatch.vkorg = mapVkorg;
+                                    salesAreaMatch.vtweg = mapVtweg;
+                                    salesAreaMatch.spart = custSA.spart || String(mapRow.Spart || mapRow.SPART || '').trim();
+                                    salesAreaMatch.plant = String(mapRow.Site || mapRow.SITE || mapRow.Werks || mapRow.WERKS || '').trim();
+                                    console.log('buildPayload: ✓ Found brand-compatible alternative → VKORG=' +
+                                               salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg +
+                                               ' SPART=' + salesAreaMatch.spart + ' Plant=' + salesAreaMatch.plant +
+                                               ' Brand=' + mapBrand);
+                                    foundAlt = true;
+                                    break;
+                                }
                             }
                         }
                     }
+
+                    // Priority 2: Find intersection of customer SA + salesAreaMap (any brand, same BUKRS)
                     if (!foundAlt) {
-                        // Last resort: use customer's first sales area that matches companyCode
-                        for (var ca2 = 0; ca2 < customerSalesAreas.length; ca2++) {
-                            // Accept any customer sales area as last resort
-                            salesAreaMatch.vkorg = customerSalesAreas[ca2].vkorg;
-                            salesAreaMatch.vtweg = customerSalesAreas[ca2].vtweg;
-                            salesAreaMatch.spart = customerSalesAreas[ca2].spart;
-                            console.warn('buildPayload: Using customer first sales area as last resort → VKORG=' +
-                                        salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg +
-                                        ' SPART=' + salesAreaMatch.spart);
-                            break;
+                        console.log('buildPayload: No brand-compatible alternative. Trying any brand match...');
+                        for (var ca2 = 0; ca2 < customerSalesAreas.length && !foundAlt; ca2++) {
+                            var custSA2 = customerSalesAreas[ca2];
+                            for (var sl3 = 0; sl3 < salesAreaList.length; sl3++) {
+                                var mapRow2 = salesAreaList[sl3];
+                                var mapVkorg2 = String(mapRow2.Vkorg || mapRow2.VKORG || '').trim();
+                                var mapVtweg2 = String(mapRow2.Vtweg || mapRow2.VTWEG || '').trim();
+                                var mapBukrs2 = String(mapRow2.Bukrs || mapRow2.BUKRS || '').trim();
+                                if (custSA2.vkorg === mapVkorg2 && custSA2.vtweg === mapVtweg2 &&
+                                    (!companyCode || mapBukrs2 === companyCode)) {
+                                    salesAreaMatch.vkorg = mapVkorg2;
+                                    salesAreaMatch.vtweg = mapVtweg2;
+                                    salesAreaMatch.spart = custSA2.spart || String(mapRow2.Spart || mapRow2.SPART || '').trim();
+                                    salesAreaMatch.plant = String(mapRow2.Site || mapRow2.SITE || mapRow2.Werks || mapRow2.WERKS || '').trim();
+                                    var altBrand = String(mapRow2.Brand || mapRow2.BRAND || '').trim();
+                                    console.warn('buildPayload: ⚠ Using non-brand-matching alternative → VKORG=' +
+                                               salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg +
+                                               ' SPART=' + salesAreaMatch.spart + ' Plant=' + salesAreaMatch.plant +
+                                               ' MapBrand=' + altBrand + ' (product brand=' + brandUC + ')');
+                                    foundAlt = true;
+                                    break;
+                                }
+                            }
                         }
+                    }
+
+                    if (!foundAlt) {
+                        // No intersection found at all - keep original brand-based SA and log error
+                        console.error('buildPayload: ✗ NO VALID INTERSECTION: Customer ' + soldToParty +
+                                     ' sales areas [' + custSAList + '] have no match in salesAreaMap.' +
+                                     ' Keeping brand-based SA: ' + salesAreaMatch.vkorg + '/' + salesAreaMatch.vtweg);
                     }
                     console.log('SalesArea ADJUSTED → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
                                ' SPART:' + salesAreaMatch.spart + ' Plant:' + salesAreaMatch.plant);
