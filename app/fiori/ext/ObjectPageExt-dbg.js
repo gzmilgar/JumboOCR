@@ -45,8 +45,7 @@ sap.ui.define([
                             description: obj.Description || "",
                             materialNumber: obj.MaterialNumber || "",
                             quantity: obj.Quantity != null ? String(obj.Quantity) : "0",
-                            unitPrice: obj.UnitPrice != null ? String(obj.UnitPrice) : "0",
-                            discount: obj.Discount != null ? String(obj.Discount) : "0"
+                            unitPrice: obj.UnitPrice != null ? String(obj.UnitPrice) : "0"
                         };
                     });
 
@@ -90,8 +89,7 @@ sap.ui.define([
                             new Text({ text: "{edit>description}" }),
                             new Input({ value: "{edit>materialNumber}" }),
                             new Input({ value: "{edit>quantity}", type: "Number" }),
-                            new Input({ value: "{edit>unitPrice}", type: "Number" }),
-                            new Input({ value: "{edit>discount}", type: "Number" })
+                            new Input({ value: "{edit>unitPrice}", type: "Number" })
                         ]
                     });
 
@@ -103,8 +101,7 @@ sap.ui.define([
                             new Column({ header: new Text({ text: "Description" }) }),
                             new Column({ header: new Text({ text: "Material" }) }),
                             new Column({ header: new Text({ text: "Qty" }) }),
-                            new Column({ header: new Text({ text: "Unit Price" }) }),
-                            new Column({ header: new Text({ text: "Discount" }) })
+                            new Column({ header: new Text({ text: "Unit Price" }) })
                         ]
                     });
 
@@ -154,8 +151,7 @@ sap.ui.define([
                                                         barcode: item.barcode,
                                                         materialNumber: item.materialNumber,
                                                         quantity: item.quantity,
-                                                        unitPrice: item.unitPrice,
-                                                        discount: item.discount
+                                                        unitPrice: item.unitPrice
                                                     };
                                                 })
                                             )
