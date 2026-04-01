@@ -647,14 +647,20 @@ this.on('updatePOLogData', async (req) => {
             var itemPatch = {};
             if (item.barcode        !== undefined) itemPatch.Barcode        = item.barcode              || '';
             if (item.materialNumber !== undefined) itemPatch.MaterialNumber = item.materialNumber        || '';
-            if (item.quantity       !== undefined) itemPatch.Quantity       = parseFloat(item.quantity)  || 0;
+            if (item.quantity       !== undefined) {
+                itemPatch.Quantity       = parseFloat(item.quantity)  || 0;
+                if (!itemPatch.Unit) itemPatch.Unit = item.unit || 'EA';
+            }
             if (item.unitPrice      !== undefined) itemPatch.UnitPrice     = parseFloat(item.unitPrice) || 0;
             if (item.discount       !== undefined) itemPatch.Discount      = parseFloat(item.discount)  || 0;
 
             // PascalCase de gelebilir kontrol et
             if (item.Barcode        !== undefined) itemPatch.Barcode        = item.Barcode              || '';
             if (item.MaterialNumber !== undefined) itemPatch.MaterialNumber = item.MaterialNumber        || '';
-            if (item.Quantity       !== undefined) itemPatch.Quantity       = parseFloat(item.Quantity)  || 0;
+            if (item.Quantity       !== undefined) {
+                itemPatch.Quantity       = parseFloat(item.Quantity)  || 0;
+                if (!itemPatch.Unit) itemPatch.Unit = item.Unit || item.unit || 'EA';
+            }
             if (item.UnitPrice      !== undefined) itemPatch.UnitPrice     = parseFloat(item.UnitPrice) || 0;
             if (item.Discount       !== undefined) itemPatch.Discount      = parseFloat(item.Discount)  || 0;
 

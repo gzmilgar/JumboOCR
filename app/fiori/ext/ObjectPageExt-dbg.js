@@ -45,6 +45,7 @@ sap.ui.define([
                             description: obj.Description || "",
                             materialNumber: obj.MaterialNumber || "",
                             quantity: obj.Quantity != null ? String(obj.Quantity) : "0",
+                            unit: obj.Unit || "EA",
                             unitPrice: obj.UnitPrice != null ? String(obj.UnitPrice) : "0"
                         };
                     });
@@ -150,6 +151,7 @@ sap.ui.define([
                                                         barcode: item.barcode,
                                                         materialNumber: item.materialNumber,
                                                         quantity: item.quantity,
+                                                        unit: item.unit,
                                                         unitPrice: item.unitPrice
                                                     };
                                                 })
