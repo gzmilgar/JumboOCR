@@ -612,7 +612,7 @@ this.on('updatePOLogData', async (req) => {
 
         // ── 1. HEADER PATCH ──────────────────────────────────
         var headerPatch = {};
-        if (hdr.purchaseOrder  !== undefined) headerPatch.PurchaseOrder  = hdr.purchaseOrder  || '';
+        // PurchaseOrder is a key/identifier field - not patchable on S/4HANA
         if (hdr.deliveryDate   !== undefined) headerPatch.DeliveryDate   = hdr.deliveryDate   || null;
         if (hdr.documentDate   !== undefined) headerPatch.DocumentDate   = hdr.documentDate   || null;
         if (hdr.receiverId     !== undefined) headerPatch.ReceiverId     = hdr.receiverId     || '';
@@ -706,9 +706,19 @@ this.on('updatePOLogData', async (req) => {
         };
 
     } catch (e) {
-        console.error('updatePOLogData error: ' + e.message);
+        var errMsg = e.message || 'Unknown error';
+        // Try to extract detailed error from S/4HANA response
+        if (e.response && e.response.data) {
+            var s4Err = e.response.data;
+            if (s4Err.error && s4Err.error.message) {
+                errMsg = typeof s4Err.error.message === 'object' ? s4Err.error.message.value : s4Err.error.message;
+            } else if (typeof s4Err === 'string') {
+                errMsg = s4Err;
+            }
+        }
+        console.error('updatePOLogData error: ' + errMsg);
         console.error('updatePOLogData stack: ' + e.stack);
-        return { success: false, message: e.message };
+        return { success: false, message: errMsg };
     }
 });
     // ============================================================

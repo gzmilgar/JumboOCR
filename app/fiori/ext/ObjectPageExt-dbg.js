@@ -68,7 +68,7 @@ sap.ui.define([
                         labelSpanS: 12,
                         content: [
                             new Label({ text: "Purchase Order" }),
-                            new Input({ value: "{edit>/purchaseOrder}" }),
+                            new Input({ value: "{edit>/purchaseOrder}", editable: false }),
                             new Label({ text: "Net Amount" }),
                             new Input({ value: "{edit>/netAmount}", type: "Number" }),
                             new Label({ text: "Gross Amount" }),
@@ -137,7 +137,6 @@ sap.ui.define([
                                         body: JSON.stringify({
                                             uuid: oData.Uuid,
                                             headerData: JSON.stringify({
-                                                purchaseOrder: editData.purchaseOrder,
                                                 netAmount: editData.netAmount,
                                                 grossAmount: editData.grossAmount,
                                                 currencyCode: editData.currencyCode,
@@ -159,6 +158,20 @@ sap.ui.define([
                                     });
                                 })
                                 .then(function (response) {
+                                    if (!response.ok) {
+                                        return response.text().then(function (txt) {
+                                            var msg = "HTTP " + response.status;
+                                            try {
+                                                var j = JSON.parse(txt);
+                                                if (j.error && j.error.message) {
+                                                    msg = typeof j.error.message === "object" ? j.error.message.value : j.error.message;
+                                                } else if (j.message) {
+                                                    msg = j.message;
+                                                }
+                                            } catch (x) {}
+                                            throw new Error(msg);
+                                        });
+                                    }
                                     return response.json();
                                 })
                                 .then(function (result) {
