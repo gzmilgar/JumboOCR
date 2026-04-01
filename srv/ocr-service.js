@@ -369,12 +369,28 @@ this.on('UPDATE', 'OCRItems', async (req) => {
         var logEntry = await s4GetPOLog(uuid);
         if (!logEntry) throw new Error('POLog not found: ' + uuid);
         processName = processName || logEntry.processName || 'Unknown';
-        console.log('[' + processName + '] _execute: PO=' + logEntry.purchaseOrder + ' items=' + logEntry.items.length);
+        console.log('═══════════════════════════════════════════════════');
+        console.log('[' + processName + '] _execute START uuid=' + uuid);
+        console.log('[' + processName + '] PO=' + logEntry.purchaseOrder +
+                   ' receiverId=' + logEntry.receiverId +
+                   ' deliveryAdress=' + (logEntry.deliveryAdress || '').substring(0, 50) +
+                   ' items=' + logEntry.items.length);
+        if (logEntry.items.length > 0) {
+            console.log('[' + processName + '] Item[0]: Barcode=' + logEntry.items[0].Barcode +
+                       ' Material=' + logEntry.items[0].MaterialNumber +
+                       ' Qty=' + logEntry.items[0].Quantity);
+        }
 
         // 2. Get STSA via cache
         var stsaResult = await getCachedStsa(processName);
         console.log('[' + processName + '] STSA: success=' + stsaResult.success + ' msg=' + stsaResult.message);
+        if (!stsaResult.success) {
+            console.error('[' + processName + '] STSA FAILED - shipTo and salesArea data unavailable');
+        }
         var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
+        var shipToList = parseJsonField(stsa.shipToPartners);
+        var salesAreaList = parseJsonField(stsa.salesAreaMap);
+        console.log('[' + processName + '] ShipTo count=' + shipToList.length + ' SalesArea count=' + salesAreaList.length);
 
         // 3. Build data from log entry
         var minData = {
@@ -397,7 +413,9 @@ this.on('UPDATE', 'OCRItems', async (req) => {
         // 5. Process sales order
         console.log('[' + processName + '] Calling _processSalesOrder...');
         var result = await _processSalesOrder(data, stsa, processName);
-        console.log('[' + processName + '] Result: success=' + result.success + ' SO=' + result.salesOrderNumber + ' msg=' + result.message);
+        console.log('[' + processName + '] Result: success=' + result.success +
+                   ' SO=' + result.salesOrderNumber + ' msg=' + result.message);
+        console.log('═══════════════════════════════════════════════════');
 
         // 6. Update log with result
         await autoUpdatePOLog(uuid, result.success ? 'SUCCESS' : 'FAILED',
