@@ -4,129 +4,28 @@ const { executeHttpRequest } = require('@sap-cloud-sdk/http-client');
 
 var OCR_BASE = '/sap/opu/odata4/sap/zsdocr_sb_log_o4/srvd/sap/zsd_ocr_log_srv/0001/';
 
-// STSA cache - keyed by processName, TTL 10 minutes
-var _stsaCache = {};
-var STSA_CACHE_TTL = 10 * 60 * 1000;
-
-function statusCriticality(status) {
-    switch ((status || '').toUpperCase()) {
-        case 'SUCCESS':  return 3; // Positive (green)
-        case 'FAILED':   return 1; // Negative (red)
-        case 'RETRYING': return 2; // Critical (orange)
-        case 'PENDING':  return 2; // Critical (orange)
-        default:         return 0; // None (neutral)
-    }
-}
-
-// Format S/4HANA date strings: "20260329" → "2026-03-29", "20260329110350" → "2026-03-29 11:03:50"
-function formatS4Date(val) {
-    if (!val || typeof val !== 'string') return val || '';
-    var s = val.replace(/[^0-9]/g, '');
-    if (s.length >= 8) {
-        var d = s.substring(0,4) + '-' + s.substring(4,6) + '-' + s.substring(6,8);
-        if (s.length >= 14) d += ' ' + s.substring(8,10) + ':' + s.substring(10,12) + ':' + s.substring(12,14);
-        return d;
-    }
-    return val;
-}
-
-// Build OData $filter from CDS SELECT.where array
-function buildODataFilter(where) {
-    if (!where || !Array.isArray(where) || where.length === 0) return '';
-    var parts = [];
-    for (var i = 0; i < where.length; i++) {
-        var w = where[i];
-        if (typeof w === 'string') {
-            // 'and', 'or' operators
-            parts.push(w);
-        } else if (w.ref) {
-            // field reference - look for operator + value
-            var field = w.ref[0];
-            var op = where[i+1];
-            var valObj = where[i+2];
-            if (op && valObj && valObj.val !== undefined) {
-                var odataOp = op === '=' ? 'eq' : op === '!=' ? 'ne' : op === '>' ? 'gt' : op === '<' ? 'lt' : op === '>=' ? 'ge' : op === '<=' ? 'le' : op;
-                parts.push(field + " " + odataOp + " '" + valObj.val + "'");
-                i += 2; // skip op and val
-            } else if (op && typeof op === 'string' && op.toLowerCase() === 'like' && valObj && valObj.val !== undefined) {
-                // contains filter
-                var likeVal = String(valObj.val).replace(/%/g, '');
-                parts.push("contains(" + field + ",'" + likeVal + "')");
-                i += 2;
-            }
-        }
-    }
-    return parts.join(' ');
-}
-
 module.exports = class extends cds.ApplicationService { async init() {
 
     // ============================================================
-    // OCRLogs READ (list + single record)
+    // OCRLogs READ - super.init() ÖNCE (liste + tekil kayıt)
     // ============================================================
     this.on('READ', 'OCRLogs', async (req) => {
         try {
-            // Extract UUID from multiple possible locations
-            var uuid = null;
-
-            // 1) req.params (navigation: OCRLogs('uuid'))
-            if (req.params && req.params.length > 0) {
-                var p = req.params[0];
-                uuid = (typeof p === 'object') ? (p.Uuid || p.UUID || p.uuid) : p;
-            }
-
-            // 2) req.data (sometimes CAP puts key here)
-            if (!uuid && req.data && req.data.Uuid) {
-                uuid = req.data.Uuid;
-            }
-
-            // 3) WHERE clause (top-level)
-            if (!uuid) {
-                uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
-            }
-
-            // 4) FROM ref where clause (bound action entity resolution)
-            //    CAP puts key in: SELECT.from.ref[0].where for bound actions
-            if (!uuid) {
-                try {
-                    var fromRef = req.query?.SELECT?.from?.ref;
-                    if (Array.isArray(fromRef)) {
-                        for (var fi = 0; fi < fromRef.length; fi++) {
-                            if (fromRef[fi] && fromRef[fi].where) {
-                                uuid = extractKeyFromWhere(fromRef[fi].where, 'Uuid');
-                                if (uuid) break;
-                            }
-                        }
-                    }
-                } catch(e) { /* ignore */ }
-            }
-
-            // 5) Last resort: try to extract from the raw URL/path
-            if (!uuid) {
-                try {
-                    var rawUrl = req._.req?.url || req._.req?.path || '';
-                    var m = rawUrl.match(/OCRLogs\('([^']+)'\)/);
-                    if (m) uuid = m[1];
-                } catch(e) { /* ignore */ }
-            }
-
-            console.log('OCRLogs READ: uuid=' + (uuid || 'null') + ' params=' + JSON.stringify(req.params));
-
+            const uuid = extractKeyFromWhere(req.query?.SELECT?.where, 'Uuid');
 if (uuid) {
     const r = await s4GetPOLog(uuid);
     return [{
         Uuid: r.uuid || '', ProcessName: r.processName || '',
         PdfName: r.pdfName || '', MailSubject: '',
-        PurchaseOrder: r.purchaseOrder || '', DeliveryDate: formatS4Date(r.deliveryDate),
-        DocumentDate: formatS4Date(r.documentDate), ReceiverId: r.receiverId || '',
+        PurchaseOrder: r.purchaseOrder || '', DeliveryDate: r.deliveryDate || '',
+        DocumentDate: r.documentDate || '', ReceiverId: r.receiverId || '',
         CurrencyCode: r.currencyCode || '', NetAmount: parseFloat(r.netAmount) || 0,
         GrossAmount: parseFloat(r.grossAmount) || 0, TotalVat: r.totalVat || '',
         Discount: parseFloat(r.discount) || 0, DeliveryAdress: r.deliveryAdress || '',
         VendorAdress: r.vendorAdress || '', Status: r.status || '',
-        StatusCriticality: statusCriticality(r.status),
         SalesOrderNumber: r.salesOrderNumber || '', ErrorMessage: r.errorMessage || '',
         MissingBarcodes: r.missingBarcodes || '', ItemCount: r.itemCount || 0,
-        CreatedAt: formatS4Date(r.createdAt), UpdatedAt: formatS4Date(r.updatedAt),
+        CreatedAt: r.createdAt || '', UpdatedAt: '',
         Items: (r.items || []).map(item => ({
             HeaderId: r.uuid || '',
             ItemNumber: item.ItemNumber || '',
@@ -141,31 +40,23 @@ if (uuid) {
     }];
 }
  else {
-                // Build S/4HANA URL with filter support
-                var s4Url = OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200';
-                var oFilter = buildODataFilter(req.query?.SELECT?.where);
-                if (oFilter) {
-                    s4Url += '&$filter=' + encodeURIComponent(oFilter);
-                    console.log('OCRLogs READ: $filter=' + oFilter);
-                }
                 const response = await executeHttpRequest(
                     { destinationName: 'QS4_HTTPS' },
-                    { method: 'GET', url: s4Url,
+                    { method: 'GET', url: OCR_BASE + 'OCRLogHead?$orderby=CreatedAt desc&$top=200',
                       headers: { 'Accept': 'application/json' }, timeout: 30000 }
                 );
                 return (response.data?.value || []).map(r => ({
                     Uuid: r.Uuid || '', ProcessName: r.ProcessName || '',
                     PdfName: r.PdfName || '', MailSubject: r.MailSubject || '',
-                    PurchaseOrder: r.PurchaseOrder || '', DeliveryDate: formatS4Date(r.DeliveryDate),
-                    DocumentDate: formatS4Date(r.DocumentDate), ReceiverId: r.ReceiverId || '',
+                    PurchaseOrder: r.PurchaseOrder || '', DeliveryDate: r.DeliveryDate || '',
+                    DocumentDate: r.DocumentDate || '', ReceiverId: r.ReceiverId || '',
                     CurrencyCode: r.CurrencyCode || '', NetAmount: r.NetAmount || 0,
                     GrossAmount: r.GrossAmount || 0, TotalVat: r.TotalVat || '',
                     Discount: r.Discount || 0, DeliveryAdress: r.DeliveryAdress || '',
                     VendorAdress: r.VendorAdress || '', Status: r.Status || '',
-                    StatusCriticality: statusCriticality(r.Status),
                     SalesOrderNumber: r.SalesOrderNumber || '', ErrorMessage: r.ErrorMessage || '',
                     MissingBarcodes: r.MissingBarcodes || '', ItemCount: r.ItemCount || 0,
-                    CreatedAt: formatS4Date(r.CreatedAt), UpdatedAt: formatS4Date(r.UpdatedAt)
+                    CreatedAt: r.CreatedAt || '', UpdatedAt: r.UpdatedAt || ''
                 }));
             }
         } catch (e) {
@@ -175,7 +66,7 @@ if (uuid) {
     });
 
     // ============================================================
-    // OCRItems READ
+    // OCRItems READ - super.init() ÖNCE
     // ============================================================
 this.on('READ', 'OCRItems', async (req) => {
     try {
@@ -218,8 +109,9 @@ this.on('READ', 'OCRItems', async (req) => {
         return [];
     }
 });
-    // UPDATE handler
+    // UPDATE - super.init() ÖNCE
 this.on('UPDATE', 'OCRLogs', async (req) => {
+    // params'tan uuid al - tüm olası yolları dene
     let uuid = req.params?.[0]?.Uuid 
             || req.params?.[0] 
             || req.data?.Uuid;
@@ -236,68 +128,38 @@ this.on('UPDATE', 'OCRLogs', async (req) => {
     const d = req.data;
     
     try {
-        // ── 1. HEADER PATCH ──────────────────────────────────────
+        // Sadece gelen field'ları patch body'e ekle
         const patchBody = {};
-        if (d.PurchaseOrder    !== undefined) patchBody.PurchaseOrder    = d.PurchaseOrder    || '';
-        if (d.DeliveryDate     !== undefined) patchBody.DeliveryDate     = d.DeliveryDate     || null;
-        if (d.DocumentDate     !== undefined) patchBody.DocumentDate     = d.DocumentDate     || null;
-        if (d.ReceiverId       !== undefined) patchBody.ReceiverId       = d.ReceiverId       || '';
-        if (d.CurrencyCode     !== undefined) patchBody.CurrencyCode     = d.CurrencyCode     || '';
-        if (d.NetAmount        !== undefined) patchBody.NetAmount        = parseFloat(d.NetAmount)   || 0;
-        if (d.GrossAmount      !== undefined) patchBody.GrossAmount      = parseFloat(d.GrossAmount) || 0;
-        if (d.TotalVat         !== undefined) patchBody.TotalVat         = d.TotalVat         || '';
-        if (d.Discount         !== undefined) patchBody.Discount         = parseFloat(d.Discount)    || 0;
-        if (d.DeliveryAdress   !== undefined) patchBody.DeliveryAdress   = d.DeliveryAdress   || '';
-        if (d.VendorAdress     !== undefined) patchBody.VendorAdress     = d.VendorAdress     || '';
-        if (d.Status           !== undefined) patchBody.Status           = d.Status           || '';
+        
+        if (d.PurchaseOrder  !== undefined) patchBody.PurchaseOrder  = d.PurchaseOrder  || '';
+        if (d.DeliveryDate   !== undefined) patchBody.DeliveryDate   = d.DeliveryDate   || null;
+        if (d.DocumentDate   !== undefined) patchBody.DocumentDate   = d.DocumentDate   || null;
+        if (d.ReceiverId     !== undefined) patchBody.ReceiverId     = d.ReceiverId     || '';
+        if (d.CurrencyCode   !== undefined) patchBody.CurrencyCode   = d.CurrencyCode   || '';
+        if (d.NetAmount      !== undefined) patchBody.NetAmount      = parseFloat(d.NetAmount)   || 0;
+        if (d.GrossAmount    !== undefined) patchBody.GrossAmount    = parseFloat(d.GrossAmount) || 0;
+        if (d.TotalVat       !== undefined) patchBody.TotalVat       = d.TotalVat       || '';
+        if (d.Discount       !== undefined) patchBody.Discount       = parseFloat(d.Discount)    || 0;
+        if (d.DeliveryAdress !== undefined) patchBody.DeliveryAdress = d.DeliveryAdress || '';
+        if (d.VendorAdress   !== undefined) patchBody.VendorAdress   = d.VendorAdress   || '';
+        if (d.Status         !== undefined) patchBody.Status         = d.Status         || '';
         if (d.SalesOrderNumber !== undefined) patchBody.SalesOrderNumber = d.SalesOrderNumber || '';
-        if (d.ErrorMessage     !== undefined) patchBody.ErrorMessage     = d.ErrorMessage     || '';
-        if (d.MissingBarcodes  !== undefined) patchBody.MissingBarcodes  = d.MissingBarcodes  || '';
+        if (d.ErrorMessage   !== undefined) patchBody.ErrorMessage   = d.ErrorMessage   || '';
+        if (d.MissingBarcodes !== undefined) patchBody.MissingBarcodes = d.MissingBarcodes || '';
 
+        console.log('UPDATE OCRLogs: patchBody=' + JSON.stringify(patchBody));
+
+        // Patch body boş değilse S/4HANA'ya gönder
         if (Object.keys(patchBody).length > 0) {
-            console.log('UPDATE OCRLogs: patchBody=' + JSON.stringify(patchBody));
             await s4Patch('OCRLogHead(' + uuid + ')', patchBody);
-            console.log('UPDATE OCRLogs: header PATCH success');
+            console.log('UPDATE OCRLogs: S/4HANA PATCH success, uuid=' + uuid);
+            req.info('Operation Successful');
+        } else {
+            console.log('UPDATE OCRLogs: patchBody empty, skipping S/4HANA call');
         }
 
-        // ── 2. ITEMS PATCH ───────────────────────────────────────
-        const items = d.Items || [];
-        console.log('UPDATE OCRLogs: items count=' + items.length);
-
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
-
-            const rawItemNo    = String(item.ItemNumber || '').trim();
-            const paddedItemNo = rawItemNo.padStart(6, '0');
-
-            if (!paddedItemNo || paddedItemNo === '000000') {
-                console.warn('UPDATE OCRLogs: item[' + i + '] has no valid ItemNumber, skipping');
-                continue;
-            }
-
-            const itemPatch = {};
-            if (item.Barcode        !== undefined) itemPatch.Barcode        = item.Barcode              || '';
-            if (item.Quantity       !== undefined) itemPatch.Quantity       = parseFloat(item.Quantity)  || 0;
-            if (item.UnitPrice      !== undefined) itemPatch.UnitPrice      = parseFloat(item.UnitPrice) || 0;
-            if (item.Discount       !== undefined) itemPatch.Discount       = parseFloat(item.Discount)  || 0;
-            if (item.Description    !== undefined) itemPatch.Description    = item.Description           || '';
-            if (item.MaterialNumber !== undefined) itemPatch.MaterialNumber = item.MaterialNumber        || '';
-            if (item.Unit           !== undefined) itemPatch.Unit           = item.Unit                  || 'EA';
-
-            if (Object.keys(itemPatch).length > 0) {
-                const itemUrl = "OCRLogItem(HeaderId=" + uuid + 
-                                ",ItemNumber='" + paddedItemNo + "')";
-                console.log('UPDATE OCRLogs: PATCH item URL=' + itemUrl);
-                console.log('UPDATE OCRLogs: PATCH item body=' + JSON.stringify(itemPatch));
-                await s4Patch(itemUrl, itemPatch);
-                console.log('UPDATE OCRLogs: item PATCH success, ItemNumber=' + paddedItemNo);
-            }
-        }
-
-        // ── 3. FETCH UPDATED DATA FROM S/4HANA ───────────────────
-        console.log('UPDATE OCRLogs: fetching updated data from S/4HANA...');
+        // Güncel veriyi S/4HANA'dan çek ve döndür
         const updated = await s4GetPOLog(uuid);
-        console.log('UPDATE OCRLogs: fetch success, status=' + updated.status);
 
         return {
             Uuid:             updated.uuid             || uuid,
@@ -321,18 +183,7 @@ this.on('UPDATE', 'OCRLogs', async (req) => {
             MissingBarcodes:  updated.missingBarcodes  || d.MissingBarcodes  || '',
             ItemCount:        updated.itemCount        || d.ItemCount        || 0,
             CreatedAt:        updated.createdAt        || d.CreatedAt        || '',
-            UpdatedAt:        updated.updatedAt        || d.UpdatedAt        || '',
-            Items: (updated.items || []).map(item => ({
-                HeaderId:       item.HeaderId       || uuid,
-                ItemNumber:     item.ItemNumber      || '',
-                Barcode:        item.Barcode         || '',
-                Description:    item.Description     || '',
-                MaterialNumber: item.MaterialNumber  || '',
-                Unit:           item.Unit            || 'EA',
-                Quantity:       parseFloat(item.Quantity)  || 0,
-                UnitPrice:      parseFloat(item.UnitPrice) || 0,
-                Discount:       parseFloat(item.Discount)  || 0
-            }))
+            UpdatedAt:        updated.updatedAt        || d.UpdatedAt        || ''
         };
 
     } catch (e) {
@@ -347,8 +198,8 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     const iNo = req.params?.[0]?.ItemNumber;
     const d = req.data;
     try {
-        var sapUuid = hId;
-        await s4Patch("OCRLogItem(HeaderId=" + sapUuid + ",ItemNumber='" + iNo + "')", {
+        var sapUuid = toSapUuid(hId);
+        await s4Patch("OCRLogItem(HeaderId=guid'" + sapUuid + "',ItemNumber='" + iNo + "')", {
             Barcode:   d.Barcode,
             Quantity:  d.Quantity,
             UnitPrice: d.UnitPrice,
@@ -360,101 +211,71 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     return req.data;
 });
 
-    // ============================================================
-    // SHARED: _executeSalesOrderCreation
-    // Single function used by both triggerLog and processAndCreateSalesOrder
-    // ============================================================
-    async function _executeSalesOrderCreation(uuid, processName) {
-        // 1. Read log data from S/4HANA
-        var logEntry = await s4GetPOLog(uuid);
-        if (!logEntry) throw new Error('POLog not found: ' + uuid);
-        processName = processName || logEntry.processName || 'Unknown';
-        console.log('═══════════════════════════════════════════════════');
-        console.log('[' + processName + '] _execute START uuid=' + uuid);
-        console.log('[' + processName + '] PO=' + logEntry.purchaseOrder +
-                   ' receiverId=' + logEntry.receiverId +
-                   ' deliveryAdress=' + (logEntry.deliveryAdress || '').substring(0, 50) +
-                   ' items=' + logEntry.items.length);
-        if (logEntry.items.length > 0) {
-            console.log('[' + processName + '] Item[0]: Barcode=' + logEntry.items[0].Barcode +
-                       ' Material=' + logEntry.items[0].MaterialNumber +
-                       ' Qty=' + logEntry.items[0].Quantity);
-        }
-
-        // 2. Get STSA via cache
-        var stsaResult = await getCachedStsa(processName);
-        console.log('[' + processName + '] STSA: success=' + stsaResult.success + ' msg=' + stsaResult.message);
-        if (!stsaResult.success) {
-            console.error('[' + processName + '] STSA FAILED - shipTo and salesArea data unavailable');
-        }
-        var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
-        var shipToList = parseJsonField(stsa.shipToPartners);
-        var salesAreaList = parseJsonField(stsa.salesAreaMap);
-        console.log('[' + processName + '] ShipTo count=' + shipToList.length + ' SalesArea count=' + salesAreaList.length);
-
-        // 3. Build data from log entry
-        var minData = {
-            purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
-            documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
-            currencyCode: logEntry.currencyCode, netAmount: logEntry.netAmount,
-            grossAmount: logEntry.grossAmount, discount: logEntry.discount,
-            deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress, taxId: logEntry.taxId,
-            lineItems: logEntry.items.map(function(i) {
-                return { barcode: i.Barcode||'', quantity: String(i.Quantity||''), unitPrice: String(i.UnitPrice||''),
-                         discount: String(i.Discount||''), itemNumber: i.ItemNumber||'', description: i.Description||'',
-                         materialNumber: i.MaterialNumber||'' };
-            })
-        };
-        var data = wrapForBuildPayload(minData);
-
-        // 4. Update status to RETRYING
-        await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
-
-        // 5. Process sales order
-        console.log('[' + processName + '] Calling _processSalesOrder...');
-        var result = await _processSalesOrder(data, stsa, processName);
-        console.log('[' + processName + '] Result: success=' + result.success +
-                   ' SO=' + result.salesOrderNumber + ' msg=' + result.message);
-        console.log('═══════════════════════════════════════════════════');
-
-        // 6. Update log with result
-        await autoUpdatePOLog(uuid, result.success ? 'SUCCESS' : 'FAILED',
-            result.salesOrderNumber || '', result.success ? '' : (result.message || ''),
-            result.itemCount || 0, result.missingBarcodes || '');
-
-        return result;
-    }
-
-    // ============================================================
-    // SHARED: extractErrorMessage from S/4HANA error
-    // ============================================================
-    function extractErrorMessage(e) {
-        if (e.response?.data?.error?.message?.value) return e.response.data.error.message.value;
-        if (e.response?.data?.error?.innererror?.errordetails) {
-            return e.response.data.error.innererror.errordetails.map(function(d) { return d.message; }).join('; ');
-        }
-        if (e.response?.data?.error?.message) {
-            return typeof e.response.data.error.message === 'string'
-                ? e.response.data.error.message : JSON.stringify(e.response.data.error.message);
-        }
-        return e.message || 'Unknown error';
-    }
-
-    // ============================================================
-    // triggerLog - calls shared _executeSalesOrderCreation
-    // ============================================================
+    // triggerLog - super.init() ÖNCE
     this.on('triggerLog', async (req) => {
-        var uuid = req.data?.uuid;
-        console.log('=== triggerLog called: uuid=' + uuid + ' ===');
+        var uuid = req.data.uuid;
         try {
-            if (!uuid) return { success: false, message: 'UUID is required', salesOrder: '' };
-            var result = await _executeSalesOrderCreation(uuid, null);
-            return { success: result.success, message: result.message || 'Sales order creation failed', salesOrder: result.salesOrderNumber || '' };
+            var logEntry = await s4GetPOLog(uuid);
+            if (!logEntry) return { success: false, message: 'POLog not found: ' + uuid, salesOrder: '' };
+            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
+            var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
+            var minData = {
+                purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
+                documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
+                deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress, taxId: logEntry.taxId,
+                lineItems: logEntry.items.map(function(i) {
+                    return { barcode: i.Barcode||'', quantity: String(i.Quantity||''), unitPrice: String(i.UnitPrice||''),
+                             itemNumber: i.ItemNumber||'', description: i.Description||'', materialNumber: i.MaterialNumber||'' };
+                })
+            };
+            var data = wrapForBuildPayload(minData);
+            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+            var result = await _processSalesOrder(data, stsa, logEntry.processName);
+            await autoUpdatePOLog(uuid, result.success?'SUCCESS':'FAILED',
+                result.salesOrderNumber||'', result.success?'':(result.message||''),
+                result.itemCount||0, result.missingBarcodes||'');
+            return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
         } catch (e) {
             console.error('triggerLog error: ' + e.message);
-            var errorMsg = extractErrorMessage(e);
-            try { await autoUpdatePOLog(uuid, 'FAILED', '', errorMsg, 0, ''); } catch (e2) {}
-            return { success: false, message: errorMsg, salesOrder: '' };
+            try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch (e2) {}
+            return { success: false, message: e.message, salesOrder: '' };
+        }
+    });
+
+    await super.init();
+
+    // ============================================================
+    // Bound retrigger action (Object Page butonu)
+    // ============================================================
+    this.on('retrigger', 'OCRLogs', async (req) => {
+        const uuid = req.params?.[0]?.Uuid || req.params?.[0];
+        try {
+            var logEntry = await s4GetPOLog(uuid);
+            if (!logEntry) return { success: false, message: 'Not found: ' + uuid, salesOrder: '' };
+            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
+            var stsa = { shipToPartners: stsaResult.shipToPartners, salesAreaMap: stsaResult.salesAreaMap };
+            var minData = {
+                purchaseOrder: logEntry.purchaseOrder, deliveryDate: logEntry.deliveryDate,
+                documentDate: logEntry.documentDate, receiverId: logEntry.receiverId,
+                deliveryAdress: logEntry.deliveryAdress, vendorAdress: logEntry.vendorAdress,
+                taxId: logEntry.taxId,
+                lineItems: logEntry.items.map(function(i) {
+                    return { barcode: i.Barcode||'', quantity: String(i.Quantity||''),
+                             unitPrice: String(i.UnitPrice||''), itemNumber: i.ItemNumber||'',
+                             description: i.Description||'', materialNumber: i.MaterialNumber||'' };
+                })
+            };
+            var data = wrapForBuildPayload(minData);
+            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+            var result = await _processSalesOrder(data, stsa, logEntry.processName);
+            await autoUpdatePOLog(uuid, result.success ? 'SUCCESS' : 'FAILED',
+                result.salesOrderNumber||'', result.success ? '' : (result.message||''),
+                result.itemCount||0, result.missingBarcodes||'');
+            return { success: result.success, message: result.message, salesOrder: result.salesOrderNumber||'' };
+        } catch (e) {
+            console.error('retrigger error:', e.message);
+            try { await autoUpdatePOLog(uuid, 'FAILED', '', e.message, 0, ''); } catch(e2){}
+            return { success: false, message: e.message, salesOrder: '' };
         }
     });
 
@@ -463,17 +284,89 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     // ============================================================
     this.on('lookupShipToAndSalesArea', async (req) => {
         try {
-            console.log('=== lookupShipToAndSalesArea action called ===');
-            return await _lookupShipToAndSalesArea(req.data.ocrCompany);
+            console.log('=== lookupShipToAndSalesArea called ===');
+            var ocrCompany = req.data.ocrCompany;
+            if (!ocrCompany) {
+                throw new Error('ocrCompany parameter is required');
+            }
+            console.log('Company: ' + ocrCompany);
+
+            var basePath = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
+            var url = basePath + "/Root"
+                + "?$expand=_ShipToPartner($filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + ")"
+                + ",_SalesAreaMap"
+                + "&$format=json";
+
+            console.log('Calling S/4HANA...');
+            var response = await executeHttpRequest(
+                { destinationName: 'QS4_HTTPS' },
+                {
+                    method: 'GET',
+                    url: url,
+                    headers: { 'Accept': 'application/json' },
+                    timeout: 30000
+                }
+            );
+
+            var results = response.data?.value || [];
+            var shipToResults = [];
+            var salesAreaResults = [];
+            results.forEach(function (item) {
+                if (item._ShipToPartner) {
+                    shipToResults = shipToResults.concat(item._ShipToPartner);
+                }
+                if (item._SalesAreaMap) {
+                    salesAreaResults = salesAreaResults.concat(item._SalesAreaMap);
+                }
+            });
+
+            console.log('ShipToPartner results: ' + shipToResults.length);
+            console.log('SalesAreaMap results: ' + salesAreaResults.length);
+
+            if (salesAreaResults.length > 0) {
+                console.log('SalesAreaMap SAMPLE keys: ' + Object.keys(salesAreaResults[0]).join(', '));
+                console.log('SalesAreaMap SAMPLE data: ' + JSON.stringify(salesAreaResults[0]));
+            }
+
+            if (shipToResults.length > 0) {
+                console.log('ShipToPartner SAMPLE keys: ' + Object.keys(shipToResults[0]).join(', '));
+                console.log('ShipToPartner SAMPLE data: ' + JSON.stringify(shipToResults[0]));
+            }
+
+            if (shipToResults.length === 0 && salesAreaResults.length === 0) {
+                return {
+                    shipToPartners: '[]',
+                    salesAreaMap: '[]',
+                    success: false,
+                    message: 'No data found for: ' + ocrCompany
+                };
+            }
+
+            return {
+                shipToPartners: JSON.stringify(shipToResults),
+                salesAreaMap: JSON.stringify(salesAreaResults),
+                success: true,
+                message: 'ShipTo: ' + shipToResults.length + ' records, SalesArea: ' + salesAreaResults.length + ' records'
+            };
         } catch (error) {
             console.error('lookupShipToAndSalesArea Error: ' + error.message);
-            var errorMsg = error.response?.data?.error?.message?.value || error.message || 'Unknown error';
-            return { shipToPartners: '[]', salesAreaMap: '[]', success: false, message: 'Failed: ' + errorMsg };
+            var errorMsg = 'Unknown error';
+            if (error.response?.data?.error?.message?.value) {
+                errorMsg = error.response.data.error.message.value;
+            } else if (error.message) {
+                errorMsg = error.message;
+            }
+            return {
+                shipToPartners: '[]',
+                salesAreaMap: '[]',
+                success: false,
+                message: 'Failed: ' + errorMsg
+            };
         }
     });
 
     // ============================================================
-    // 2) processAndCreateSalesOrder - saves log then calls shared function
+    // 2) processAndCreateSalesOrder
     // ============================================================
     this.on('processAndCreateSalesOrder', async (req) => {
         var processName = req.data.processName || 'Unknown';
@@ -488,7 +381,15 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 data = req.data.extractedData;
             }
 
-            // Save log to S/4HANA first
+            var stsa = {};
+            if (req.data.shipToAndSalesArea) {
+                if (typeof req.data.shipToAndSalesArea === 'string') {
+                    stsa = JSON.parse(req.data.shipToAndSalesArea);
+                } else {
+                    stsa = req.data.shipToAndSalesArea;
+                }
+            }
+
             var minData = extractMinimalData(data);
             logUuid = await autoSavePOLog({
                 processName:    processName,
@@ -508,13 +409,29 @@ this.on('UPDATE', 'OCRItems', async (req) => {
                 lineItems:      minData.lineItems
             });
 
-            // Use the SAME shared function as triggerLog
-            var result = await _executeSalesOrderCreation(logUuid, processName);
+            var result = await _processSalesOrder(data, stsa, processName);
+
+            if (logUuid) {
+                await autoUpdatePOLog(logUuid,
+                    result.success ? 'SUCCESS' : 'FAILED',
+                    result.salesOrderNumber || '',
+                    result.success ? '' : (result.message || ''),
+                    result.itemCount || 0,
+                    result.missingBarcodes || '');
+            }
             return result;
 
         } catch (error) {
             console.error('[' + processName + '] ERROR: ' + error.message);
-            var errorMsg = extractErrorMessage(error);
+            var errorMsg = 'Unknown error';
+            if (error.response?.data?.error?.message?.value) {
+                errorMsg = error.response.data.error.message.value;
+            } else if (error.response?.data?.error?.innererror?.errordetails) {
+                errorMsg = error.response.data.error.innererror.errordetails
+                    .map(function (d) { return d.message; }).join('; ');
+            } else if (error.message) {
+                errorMsg = error.message;
+            }
             if (logUuid) await autoUpdatePOLog(logUuid, 'FAILED', '', errorMsg, 0, '');
             return {
                 salesOrderNumber: null,
@@ -527,7 +444,65 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     });
 
     // ============================================================
-    // 3) getPOLogs
+    // 3) retryPOLog
+    // ============================================================
+    this.on('retryPOLog', async (req) => {
+        var uuid = req.data.uuid;
+        console.log('=== retryPOLog called uuid=' + uuid + ' ===');
+        try {
+            var logEntry = await s4GetPOLog(uuid);
+            if (!logEntry) {
+                return { salesOrderNumber: null, message: 'POLog not found: ' + uuid, success: false, itemCount: 0, missingBarcodes: '' };
+            }
+
+            var stsaResult = await this.send('lookupShipToAndSalesArea', { ocrCompany: logEntry.processName });
+            var stsa = {
+                shipToPartners: stsaResult.shipToPartners,
+                salesAreaMap:   stsaResult.salesAreaMap
+            };
+
+            var minData = {
+                purchaseOrder:  logEntry.purchaseOrder,
+                deliveryDate:   logEntry.deliveryDate,
+                documentDate:   logEntry.documentDate,
+                receiverId:     logEntry.receiverId,
+                deliveryAdress: logEntry.deliveryAdress,
+                vendorAdress:   logEntry.vendorAdress,
+                taxId:          logEntry.taxId,
+                lineItems: logEntry.items.map(function (i) {
+                    return {
+                        barcode:        i.Barcode || '',
+                        quantity:       String(i.Quantity || ''),
+                        unitPrice:      String(i.UnitPrice || ''),
+                        itemNumber:     i.ItemNumber || '',
+                        description:    i.Description || '',
+                        materialNumber: i.MaterialNumber || ''
+                    };
+                })
+            };
+            var data = wrapForBuildPayload(minData);
+
+            await autoUpdatePOLog(uuid, 'RETRYING', '', '', 0, '');
+            var result = await _processSalesOrder(data, stsa, logEntry.processName);
+            await autoUpdatePOLog(uuid,
+                result.success ? 'SUCCESS' : 'FAILED',
+                result.salesOrderNumber || '',
+                result.success ? '' : (result.message || ''),
+                result.itemCount || 0,
+                result.missingBarcodes || '');
+
+            console.log('retryPOLog: uuid=' + uuid + ' → success=' + result.success + ' SO=' + result.salesOrderNumber);
+            return result;
+
+        } catch (error) {
+            console.error('retryPOLog Error: ' + error.message);
+            try { await autoUpdatePOLog(uuid, 'FAILED', '', error.message, 0, ''); } catch (e2) { }
+            return { salesOrderNumber: null, message: 'Failed: ' + error.message, success: false, itemCount: 0, missingBarcodes: '' };
+        }
+    });
+
+    // ============================================================
+    // 4) getPOLogs
     // ============================================================
     this.on('getPOLogs', async (req) => {
         try {
@@ -607,107 +582,42 @@ this.on('updatePOLogData', async (req) => {
         var hdr   = JSON.parse(req.data.headerData || '{}');
         var items = JSON.parse(req.data.itemsData  || '[]');
 
-        console.log('updatePOLogData: uuid=' + uuid);
-        console.log('updatePOLogData: items=' + JSON.stringify(items));
-
-        // ── 1. HEADER PATCH ──────────────────────────────────
+        // Only patch fields that were provided
         var headerPatch = {};
-        if (hdr.purchaseOrder  !== undefined) headerPatch.PurchaseOrder  = hdr.purchaseOrder  || '';
-        if (hdr.deliveryDate   !== undefined) headerPatch.DeliveryDate   = hdr.deliveryDate   || null;
-        if (hdr.documentDate   !== undefined) headerPatch.DocumentDate   = hdr.documentDate   || null;
-        if (hdr.receiverId     !== undefined) headerPatch.ReceiverId     = hdr.receiverId     || '';
+        if (hdr.purchaseOrder !== undefined)  headerPatch.PurchaseOrder  = hdr.purchaseOrder  || '';
+        if (hdr.deliveryDate !== undefined)   headerPatch.DeliveryDate   = hdr.deliveryDate   || null;
+        if (hdr.documentDate !== undefined)   headerPatch.DocumentDate   = hdr.documentDate   || null;
+        if (hdr.receiverId !== undefined)     headerPatch.ReceiverId     = hdr.receiverId     || '';
         if (hdr.deliveryAdress !== undefined) headerPatch.DeliveryAdress = hdr.deliveryAdress || '';
-        if (hdr.vendorAdress   !== undefined) headerPatch.VendorAdress   = hdr.vendorAdress   || '';
-        if (hdr.netAmount      !== undefined) headerPatch.NetAmount      = parseFloat(hdr.netAmount)   || 0;
-        if (hdr.grossAmount    !== undefined) headerPatch.GrossAmount    = parseFloat(hdr.grossAmount) || 0;
-        if (hdr.currencyCode   !== undefined) headerPatch.CurrencyCode   = hdr.currencyCode   || '';
+        if (hdr.vendorAdress !== undefined)   headerPatch.VendorAdress   = hdr.vendorAdress   || '';
+        if (hdr.netAmount !== undefined)      headerPatch.NetAmount      = parseFloat(hdr.netAmount)   || 0;
+        if (hdr.grossAmount !== undefined)    headerPatch.GrossAmount    = parseFloat(hdr.grossAmount) || 0;
+        if (hdr.currencyCode !== undefined)   headerPatch.CurrencyCode   = hdr.currencyCode   || '';
 
         if (Object.keys(headerPatch).length > 0) {
-            console.log('updatePOLogData: header patch=' + JSON.stringify(headerPatch));
             await s4Patch("OCRLogHead(" + uuid + ")", headerPatch);
-            console.log('updatePOLogData: header PATCH success');
         }
 
-        // ── 2. ITEMS PATCH ────────────────────────────────────
         for (var i = 0; i < items.length; i++) {
             var item = items[i];
-
-            // ItemNumber normalize → "10" veya "000010" → "000010"
-            var rawItemNo    = String(item.itemNumber || item.ItemNumber || '').trim();
-            var paddedItemNo = rawItemNo.padStart(6, '0');
-
-            console.log('updatePOLogData: item[' + i + '] rawItemNo=' + rawItemNo + 
-                        ' paddedItemNo=' + paddedItemNo);
-
-            if (!paddedItemNo || paddedItemNo === '000000') {
-                console.warn('updatePOLogData: item[' + i + '] invalid ItemNumber, skipping');
-                continue;
-            }
-
             var itemPatch = {};
-            if (item.barcode        !== undefined) itemPatch.Barcode        = item.barcode              || '';
-            if (item.materialNumber !== undefined) itemPatch.MaterialNumber = item.materialNumber        || '';
-            if (item.quantity       !== undefined) itemPatch.Quantity       = parseFloat(item.quantity)  || 0;
-            if (item.unitPrice      !== undefined) itemPatch.UnitPrice     = parseFloat(item.unitPrice) || 0;
-            if (item.discount       !== undefined) itemPatch.Discount      = parseFloat(item.discount)  || 0;
-
-            // PascalCase de gelebilir kontrol et
-            if (item.Barcode        !== undefined) itemPatch.Barcode        = item.Barcode              || '';
-            if (item.MaterialNumber !== undefined) itemPatch.MaterialNumber = item.MaterialNumber        || '';
-            if (item.Quantity       !== undefined) itemPatch.Quantity       = parseFloat(item.Quantity)  || 0;
-            if (item.UnitPrice      !== undefined) itemPatch.UnitPrice     = parseFloat(item.UnitPrice) || 0;
-            if (item.Discount       !== undefined) itemPatch.Discount      = parseFloat(item.Discount)  || 0;
+            if (item.barcode !== undefined)   itemPatch.Barcode   = item.barcode            || '';
+            if (item.quantity !== undefined)   itemPatch.Quantity  = parseFloat(item.quantity)  || 0;
+            if (item.unitPrice !== undefined)  itemPatch.UnitPrice = parseFloat(item.unitPrice) || 0;
+            if (item.discount !== undefined)   itemPatch.Discount  = parseFloat(item.discount)  || 0;
 
             if (Object.keys(itemPatch).length > 0) {
-                var itemUrl = "OCRLogItem(HeaderId=" + uuid + 
-                              ",ItemNumber='" + paddedItemNo + "')";
-                console.log('updatePOLogData: PATCH URL=' + itemUrl);
-                console.log('updatePOLogData: PATCH body=' + JSON.stringify(itemPatch));
-                await s4Patch(itemUrl, itemPatch);
-                console.log('updatePOLogData: item PATCH success ItemNumber=' + paddedItemNo);
+                await s4Patch(
+                    "OCRLogItem(HeaderId=" + uuid + ",ItemNumber='" + item.itemNumber + "')",
+                    itemPatch
+                );
             }
         }
 
-        // ── 3. FETCH UPDATED DATA FROM S/4HANA AND RETURN ──────
-        console.log('updatePOLogData: fetching updated data...');
-        const updated = await s4GetPOLog(uuid);
-        console.log('updatePOLogData: fetch success');
-
-        return {
-            success: true,
-            message: 'Updated successfully',
-            // Updated header fields
-            uuid:             updated.uuid             || uuid,
-            purchaseOrder:    updated.purchaseOrder    || '',
-            deliveryDate:     updated.deliveryDate     || '',
-            documentDate:     updated.documentDate     || '',
-            receiverId:       updated.receiverId       || '',
-            currencyCode:     updated.currencyCode     || '',
-            netAmount:        updated.netAmount        || '0',
-            grossAmount:      updated.grossAmount      || '0',
-            deliveryAdress:   updated.deliveryAdress   || '',
-            vendorAdress:     updated.vendorAdress     || '',
-            status:           updated.status           || '',
-            salesOrderNumber: updated.salesOrderNumber || '',
-            errorMessage:     updated.errorMessage     || '',
-            missingBarcodes:  updated.missingBarcodes  || '',
-            // Updated item fields
-            items: JSON.stringify((updated.items || []).map(item => ({
-                HeaderId:       item.HeaderId       || uuid,
-                ItemNumber:     item.ItemNumber      || '',
-                Barcode:        item.Barcode         || '',
-                Description:    item.Description     || '',
-                MaterialNumber: item.MaterialNumber  || '',
-                Unit:           item.Unit            || 'EA',
-                Quantity:       parseFloat(item.Quantity)  || 0,
-                UnitPrice:      parseFloat(item.UnitPrice) || 0,
-                Discount:       parseFloat(item.Discount)  || 0
-            })))
-        };
+        return { success: true, message: 'Updated successfully' };
 
     } catch (e) {
         console.error('updatePOLogData error: ' + e.message);
-        console.error('updatePOLogData stack: ' + e.stack);
         return { success: false, message: e.message };
     }
 });
@@ -766,7 +676,7 @@ this.on('updatePOLogData', async (req) => {
         if (!soldToParty) {
             return {
                 salesOrderNumber: null,
-                message: 'SoldToParty not found. Errors: ' + errors.join('; '),
+                message: 'SoldToParty not found. Hatalar: ' + errors.join('; '),
                 success: false,
                 itemCount: 0,
                 missingBarcodes: barcodeReport.missing.join(',')
@@ -782,7 +692,7 @@ this.on('updatePOLogData', async (req) => {
         if (payload.to_Item.length === 0) {
             return {
                 salesOrderNumber: null,
-                message: 'No valid items. Errors: ' + errors.join('; '),
+                message: 'Geçerli kalem yok. Hatalar: ' + errors.join('; '),
                 success: false,
                 itemCount: 0,
                 missingBarcodes: barcodeReport.missing.join(',')
@@ -847,67 +757,8 @@ this.on('updatePOLogData', async (req) => {
             return uuid;
         } catch (e) {
             console.error('autoSavePOLog error: ' + e.message);
-            return uuid;
+            return null;
         }
-    }
-
-    // ============================================================
-    // INTERNAL: _lookupShipToAndSalesArea
-    // ============================================================
-    async function _lookupShipToAndSalesArea(ocrCompany) {
-        if (!ocrCompany) {
-            return { shipToPartners: '[]', salesAreaMap: '[]', success: false, message: 'ocrCompany parameter is required' };
-        }
-        console.log('_lookupShipToAndSalesArea: Company=' + ocrCompany);
-        var basePath = "/sap/opu/odata4/sap/zsdocr_sb_shp_prt/srvd/sap/zsdocr_sd_shp_prt/0001";
-        var url = basePath + "/Root"
-            + "?$expand=_ShipToPartner($filter=" + encodeURIComponent("Company eq '" + ocrCompany + "'") + ")"
-            + ",_SalesAreaMap"
-            + "&$format=json";
-
-        var response = await executeHttpRequest(
-            { destinationName: 'QS4_HTTPS' },
-            { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
-        );
-
-        var results = response.data?.value || [];
-        var shipToResults = [];
-        var salesAreaResults = [];
-        results.forEach(function (item) {
-            if (item._ShipToPartner) shipToResults = shipToResults.concat(item._ShipToPartner);
-            if (item._SalesAreaMap) salesAreaResults = salesAreaResults.concat(item._SalesAreaMap);
-        });
-
-        console.log('_lookupShipToAndSalesArea: ShipTo=' + shipToResults.length + ' SalesArea=' + salesAreaResults.length);
-
-        if (shipToResults.length === 0 && salesAreaResults.length === 0) {
-            return { shipToPartners: '[]', salesAreaMap: '[]', success: false, message: 'No data found for: ' + ocrCompany };
-        }
-        return {
-            shipToPartners: JSON.stringify(shipToResults),
-            salesAreaMap: JSON.stringify(salesAreaResults),
-            success: true,
-            message: 'ShipTo: ' + shipToResults.length + ' records, SalesArea: ' + salesAreaResults.length + ' records'
-        };
-    }
-
-    // ============================================================
-    // CACHED STSA LOOKUP - avoids repeated S/4HANA calls for same processName
-    // ============================================================
-    async function getCachedStsa(processName) {
-        var key = (processName || '').trim();
-        var cached = _stsaCache[key];
-        if (cached && (Date.now() - cached.timestamp) < STSA_CACHE_TTL) {
-            console.log('STSA cache HIT for: ' + key + ' (age: ' + Math.round((Date.now() - cached.timestamp) / 1000) + 's)');
-            return cached.data;
-        }
-        console.log('STSA cache MISS for: ' + key + ', calling S/4HANA...');
-        var result = await _lookupShipToAndSalesArea(key);
-        if (result.success) {
-            _stsaCache[key] = { data: result, timestamp: Date.now() };
-            console.log('STSA cached for: ' + key);
-        }
-        return result;
     }
 
     // ============================================================
@@ -917,25 +768,17 @@ async function autoUpdatePOLog(uuid, status, salesOrderNumber, errorMessage, ite
     if (!uuid) return;
     try {
         var now = new Date().toISOString().slice(0,19).replace('T','').replace(/[-:]/g,'');
-        // Truncate fields to prevent S/4HANA PATCH failure due to field length
-        var safeErrorMsg = String(errorMessage || '').substring(0, 220);
-        var safeSoNumber = String(salesOrderNumber || '').substring(0, 40);
-        var safeMissing  = String(missingBarcodes || '').substring(0, 220);
-
-        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status +
-            ' SO=' + safeSoNumber + ' errorMsg=' + safeErrorMsg.substring(0, 80));
-
         await s4Patch("OCRLogHead(" + uuid + ")", {
             Status:           status           || '',
-            SalesOrderNumber: safeSoNumber,
-            ErrorMessage:     safeErrorMsg
+            SalesOrderNumber: salesOrderNumber || '',
+            ErrorMessage:     errorMessage     || '',
+            ItemCount:        itemCount        || 0,
+            MissingBarcodes:  missingBarcodes  || '',
+            UpdatedAt:        now
         });
-        console.log('autoUpdatePOLog: PATCH success uuid=' + uuid);
+        console.log('autoUpdatePOLog: uuid=' + uuid + ' status=' + status);
     } catch (e) {
-        console.error('autoUpdatePOLog PATCH FAILED: ' + e.message);
-        if (e.response?.data) {
-            console.error('autoUpdatePOLog response: ' + JSON.stringify(e.response.data).substring(0, 500));
-        }
+        console.error('autoUpdatePOLog error: ' + e.message);
     }
 }
 
@@ -970,7 +813,6 @@ async function s4GetPOLog(uuid) {
         discount:         String(r.Discount   || ''),
         deliveryAdress:   r.DeliveryAdress   || '',
         vendorAdress:     r.VendorAdress     || '',
-        taxId:            r.TaxId            || '',
         status:           r.Status           || '',
         salesOrderNumber: r.SalesOrderNumber || '',
         errorMessage:     r.ErrorMessage     || '',
@@ -1010,51 +852,89 @@ async function s4GetPOLog(uuid) {
         );
     }
 
+    
 async function s4Patch(entityWithKey, body) {
-    // ADIM 1: CSRF token al
-    const tokenResp = await executeHttpRequest(
-        { destinationName: 'QS4_HTTPS' },
-        {
-            method: 'GET',
-            url: OCR_BASE + '$metadata',
-            headers: {
-                'x-csrf-token': 'Fetch',
-                'Accept': 'application/xml'
-            },
-            timeout: 30000
+    const { getDestination } = require('@sap-cloud-sdk/connectivity');
+    const axios = require('axios');
+    const https = require('https');
+
+    // Destination'dan bilgileri al
+    const dest = await getDestination({ destinationName: 'QS4_HTTPS' });
+    const baseUrl = dest.url;
+
+    // Basic Auth oluştur
+    const auth = 'Basic ' + Buffer.from(
+        dest.username + ':' + (dest.password || '')
+    ).toString('base64');
+
+    console.log('s4Patch: baseUrl=' + baseUrl);
+    console.log('s4Patch: username=' + dest.username);
+
+    // Cookie jar - aynı session için
+    const jar = {};
+
+    const instance = axios.create({
+        baseURL: baseUrl,
+        httpsAgent: new https.Agent({ rejectUnauthorized: false })
+    });
+
+    // Response interceptor - cookie'leri topla
+    instance.interceptors.response.use(resp => {
+        const setCookie = resp.headers['set-cookie'];
+        if (setCookie) {
+            const arr = Array.isArray(setCookie) ? setCookie : [setCookie];
+            arr.forEach(c => {
+                const kv = c.split(';')[0];
+                const eqIdx = kv.indexOf('=');
+                if (eqIdx > 0) {
+                    const k = kv.substring(0, eqIdx).trim();
+                    const v = kv.substring(eqIdx + 1).trim();
+                    jar[k] = v;
+                }
+            });
         }
-    );
+        return resp;
+    });
+
+    const getCookieHeader = () =>
+        Object.entries(jar).map(([k, v]) => k + '=' + v).join('; ');
+
+    // ADIM 1: CSRF Token al ($metadata endpoint)
+    console.log('s4Patch: Fetching CSRF token...');
+    const tokenResp = await instance.get(OCR_BASE + '$metadata', {
+        headers: {
+            'x-csrf-token': 'Fetch',
+            'Authorization': auth,
+            'Accept': 'application/xml'
+        }
+    });
 
     const csrfToken = tokenResp.headers['x-csrf-token'];
-    const setCookie = tokenResp.headers['set-cookie'];
+    console.log('s4Patch: CSRF Token=' + csrfToken);
+    console.log('s4Patch: Cookie Jar=' + getCookieHeader());
 
-    let cookie = '';
-    if (setCookie) {
-        const arr = Array.isArray(setCookie) ? setCookie : [setCookie];
-        cookie = arr.map(c => c.split(';')[0]).join('; ');
+    if (!csrfToken || csrfToken === 'Required' || csrfToken === 'Fetch') {
+        throw new Error('CSRF token alinamadi: ' + csrfToken);
     }
 
-    console.log('s4Patch: csrfToken=' + csrfToken);
-    console.log('s4Patch: cookie=' + cookie);
-    console.log('s4Patch: PATCH → ' + OCR_BASE + entityWithKey);
-
-    // ADIM 2: PATCH - if-match: * eklendi!
-    return await executeHttpRequest(
-        { destinationName: 'QS4_HTTPS' },
+    // ADIM 2: AYNI SESSION ile PATCH
+    console.log('s4Patch: Sending PATCH to ' + OCR_BASE + entityWithKey);
+    const patchResp = await instance.patch(
+        OCR_BASE + entityWithKey,
+        body,
         {
-            method: 'PATCH',
-            url: OCR_BASE + entityWithKey,
-            data: body,
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
+                'Authorization': auth,
                 'x-csrf-token': csrfToken,
-                'if-match': '*',
-                ...(cookie && { 'Cookie': cookie })
-            },
-            timeout: 30000
+                'Cookie': getCookieHeader()
+            }
         }
     );
+
+    console.log('s4Patch: response status=' + patchResp.status);
+    return patchResp;
 }
 
     // ============================================================
@@ -1114,10 +994,6 @@ async function s4Patch(entityWithKey, body) {
                 receiverId:         w(minData.receiverId),
                 taxId:              w(minData.taxId),
                 documentDate:       w(minData.documentDate),
-                currencyCode:       w(minData.currencyCode),
-                netAmount:          w(minData.netAmount),
-                grossAmount:        w(minData.grossAmount),
-                discount:           w(minData.discount),
                 deliveryName:       w(minData.deliveryName),
                 deliveryPhone:      w(minData.deliveryPhone),
                 deliveryCity:       w(minData.deliveryCity),
@@ -1216,7 +1092,7 @@ async function s4Patch(entityWithKey, body) {
             var filterStr = filterParts.join(' or ');
             var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
                 + "?$filter=" + encodeURIComponent(filterStr)
-                + "&$select=Product,ProductStandardID,ProductGroup,Brand"
+                + "&$select=Product,ProductStandardID,ProductGroup"
                 + "&$format=json";
             try {
                 var response = await executeHttpRequest(
@@ -1230,8 +1106,7 @@ async function s4Patch(entityWithKey, body) {
                     if (ean) {
                         productMap[ean] = {
                             material: row.Product || '',
-                            productGroup: row.ProductGroup || '',
-                            brand: row.Brand || ''
+                            productGroup: row.ProductGroup || ''
                         };
                     }
                 }
@@ -1240,82 +1115,6 @@ async function s4Patch(entityWithKey, body) {
             }
         }
         return productMap;
-    }
-
-    // ============================================================
-    // LOOKUP MATERIAL SALES AREA from A_ProductSalesDelivery
-    // ============================================================
-    async function lookupMaterialSalesArea(material) {
-        if (!material) return [];
-        // Try multiple URL patterns - different S/4HANA versions expose different endpoints
-        var urls = [
-            "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('" + encodeURIComponent(material) + "')/to_SalesDelivery"
-                + "?$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision&$format=json",
-            "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('" + encodeURIComponent(material) + "')/to_ProductSalesDelivery"
-                + "?$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision&$format=json",
-            "/sap/opu/odata/sap/API_PRODUCT_SRV/A_ProductSalesDelivery"
-                + "?$filter=" + encodeURIComponent("Product eq '" + material + "'")
-                + "&$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision&$format=json"
-        ];
-        for (var u = 0; u < urls.length; u++) {
-            try {
-                console.log('lookupMaterialSalesArea: trying URL pattern ' + (u + 1) + '/' + urls.length);
-                var response = await executeHttpRequest(
-                    { destinationName: 'QS4_HTTPS' },
-                    { method: 'GET', url: urls[u], headers: { 'Accept': 'application/json' }, timeout: 30000 }
-                );
-                var results = response.data?.d?.results || [];
-                console.log('lookupMaterialSalesArea: Material=' + material + ' found ' + results.length + ' sales areas (pattern ' + (u + 1) + ')');
-                var salesAreas = [];
-                for (var i = 0; i < results.length; i++) {
-                    var sa = {
-                        vkorg: String(results[i].ProductSalesOrg || '').trim(),
-                        vtweg: String(results[i].ProductDistributionChnl || '').trim(),
-                        spart: String(results[i].ProductDivision || '').trim()
-                    };
-                    console.log('  SalesArea[' + i + ']: VKORG=' + sa.vkorg + ' VTWEG=' + sa.vtweg + ' SPART=' + sa.spart);
-                    salesAreas.push(sa);
-                }
-                return salesAreas;
-            } catch (e) {
-                console.warn('lookupMaterialSalesArea: pattern ' + (u + 1) + ' failed: ' + e.message);
-            }
-        }
-        console.error('lookupMaterialSalesArea: all URL patterns failed for material ' + material);
-        return [];
-    }
-
-    // ============================================================
-    // LOOKUP CUSTOMER SALES AREAS from A_CustomerSalesArea
-    // ============================================================
-    async function lookupCustomerSalesAreas(customer) {
-        if (!customer) return [];
-        try {
-            var url = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_CustomerSalesArea"
-                + "?$filter=" + encodeURIComponent("Customer eq '" + customer + "'")
-                + "&$select=Customer,SalesOrganization,DistributionChannel,Division"
-                + "&$format=json";
-            var response = await executeHttpRequest(
-                { destinationName: 'QS4_HTTPS' },
-                { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
-            );
-            var results = response.data?.d?.results || [];
-            console.log('lookupCustomerSalesAreas: Customer=' + customer + ' found ' + results.length + ' sales areas');
-            var salesAreas = [];
-            for (var i = 0; i < results.length; i++) {
-                var sa = {
-                    vkorg: String(results[i].SalesOrganization || '').trim(),
-                    vtweg: String(results[i].DistributionChannel || '').trim(),
-                    spart: String(results[i].Division || '').trim()
-                };
-                console.log('  CustomerSalesArea[' + i + ']: VKORG=' + sa.vkorg + ' VTWEG=' + sa.vtweg + ' SPART=' + sa.spart);
-                salesAreas.push(sa);
-            }
-            return salesAreas;
-        } catch (e) {
-            console.error('lookupCustomerSalesAreas error: ' + e.message);
-            return [];
-        }
     }
 
     // ============================================================
@@ -1463,7 +1262,6 @@ async function s4Patch(entityWithKey, body) {
         var lineItems = data.lineItemFields || [];
         var firstMaterial = null;
         var firstProductGroup = '';
-        var firstBrand = '';
         var matkl_fam = '';
 
         for (var m = 0; m < lineItems.length && !firstMaterial; m++) {
@@ -1471,157 +1269,17 @@ async function s4Patch(entityWithKey, body) {
             if (barcode && eanProductMap[barcode] && eanProductMap[barcode].material) {
                 firstMaterial = eanProductMap[barcode].material;
                 firstProductGroup = eanProductMap[barcode].productGroup || '';
-                firstBrand = eanProductMap[barcode].brand || '';
                 if (firstProductGroup.length >= 3) matkl_fam = firstProductGroup.substring(0, 3);
                 console.log('buildPayload: First Material=' + firstMaterial +
-                           ' ProductGroup=' + firstProductGroup + ' Brand=' + firstBrand +
-                           ' MATKL_FAM=' + matkl_fam);
+                           ' ProductGroup=' + firstProductGroup + ' MATKL_FAM=' + matkl_fam);
                 break;
             }
         }
 
-        // Look up actual sales areas for the material from S/4HANA
-        var materialSalesAreas = [];
-        if (firstMaterial) {
-            materialSalesAreas = await lookupMaterialSalesArea(firstMaterial);
-        }
-
-        // Try to match material's actual sales area against salesAreaMap
-        var salesAreaMatch = { vkorg: '', vtweg: '', spart: '', plant: '' };
-        if (materialSalesAreas.length > 0 && salesAreaList.length > 0) {
-            for (var sa = 0; sa < materialSalesAreas.length; sa++) {
-                var matSA = materialSalesAreas[sa];
-                for (var sl = 0; sl < salesAreaList.length; sl++) {
-                    var row = salesAreaList[sl];
-                    var rowVkorg = String(row.Vkorg || row.VKORG || '').trim();
-                    var rowVtweg = String(row.Vtweg || row.VTWEG || '').trim();
-                    if (rowVkorg === matSA.vkorg && rowVtweg === matSA.vtweg) {
-                        salesAreaMatch.vkorg = rowVkorg;
-                        salesAreaMatch.vtweg = rowVtweg;
-                        salesAreaMatch.spart = String(row.Spart || row.SPART || '').trim() || matSA.spart;
-                        salesAreaMatch.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
-                        console.log('buildPayload: ✓ MATERIAL SALES AREA MATCH → VKORG=' + salesAreaMatch.vkorg +
-                                   ' VTWEG=' + salesAreaMatch.vtweg + ' SPART=' + salesAreaMatch.spart +
-                                   ' Plant=' + salesAreaMatch.plant + ' (from salesAreaMap row ' + sl + ')');
-                        break;
-                    }
-                }
-                if (salesAreaMatch.vkorg) break;
-            }
-            // If no match in salesAreaMap, use material's first sales area directly
-            if (!salesAreaMatch.vkorg && materialSalesAreas.length > 0) {
-                salesAreaMatch.vkorg = materialSalesAreas[0].vkorg;
-                salesAreaMatch.vtweg = materialSalesAreas[0].vtweg;
-                salesAreaMatch.spart = materialSalesAreas[0].spart;
-                console.log('buildPayload: Using material sales area directly (no salesAreaMap match) → VKORG=' +
-                           salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg);
-            }
-        }
-
-        // Fallback to old logic if material sales area lookup didn't work
-        if (!salesAreaMatch.vkorg) {
-            salesAreaMatch = findSalesArea(salesAreaList, companyCode, matkl_fam, firstBrand);
-        }
-        console.log('SalesArea FINAL → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
+        var salesAreaMatch = findSalesArea(salesAreaList, companyCode, matkl_fam);
+        console.log('SalesArea for BUKRS=' + companyCode + ' MATKL_FAM=' + (matkl_fam || 'N/A') +
+                   ' → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
                    ' SPART:' + salesAreaMatch.spart + ' Plant:' + salesAreaMatch.plant);
-
-        // Validate chosen sales area against customer's actual assignments
-        if (soldToParty && salesAreaMatch.vkorg) {
-            var customerSalesAreas = await lookupCustomerSalesAreas(soldToParty);
-            if (customerSalesAreas.length > 0) {
-                var isValid = false;
-                for (var cv = 0; cv < customerSalesAreas.length; cv++) {
-                    if (customerSalesAreas[cv].vkorg === salesAreaMatch.vkorg &&
-                        customerSalesAreas[cv].vtweg === salesAreaMatch.vtweg) {
-                        isValid = true;
-                        // Use customer's division if it differs (customer master takes precedence)
-                        if (customerSalesAreas[cv].spart && customerSalesAreas[cv].spart !== salesAreaMatch.spart) {
-                            console.log('buildPayload: Adjusting Division from ' + salesAreaMatch.spart +
-                                       ' to ' + customerSalesAreas[cv].spart + ' (customer master)');
-                            salesAreaMatch.spart = customerSalesAreas[cv].spart;
-                        }
-                        console.log('buildPayload: ✓ Customer ' + soldToParty + ' is assigned to sales area ' +
-                                   salesAreaMatch.vkorg + '/' + salesAreaMatch.vtweg + '/' + salesAreaMatch.spart);
-                        break;
-                    }
-                }
-                if (!isValid) {
-                    var brandUC = (firstBrand || '').trim().toUpperCase();
-                    var custSAList = customerSalesAreas.map(function(c) { return c.vkorg + '/' + c.vtweg + '/' + c.spart; }).join(', ');
-                    console.warn('buildPayload: ✗ Customer ' + soldToParty + ' NOT assigned to ' +
-                                salesAreaMatch.vkorg + '/' + salesAreaMatch.vtweg +
-                                '. Customer sales areas: [' + custSAList + ']. Searching for valid alternative with brand=' + brandUC + '...');
-
-                    // Priority 1: Find intersection of customer SA + salesAreaMap with SAME BRAND
-                    var foundAlt = false;
-                    if (brandUC) {
-                        for (var ca = 0; ca < customerSalesAreas.length && !foundAlt; ca++) {
-                            var custSA = customerSalesAreas[ca];
-                            for (var sl2 = 0; sl2 < salesAreaList.length; sl2++) {
-                                var mapRow = salesAreaList[sl2];
-                                var mapVkorg = String(mapRow.Vkorg || mapRow.VKORG || '').trim();
-                                var mapVtweg = String(mapRow.Vtweg || mapRow.VTWEG || '').trim();
-                                var mapBukrs = String(mapRow.Bukrs || mapRow.BUKRS || '').trim();
-                                var mapBrand = String(mapRow.Brand || mapRow.BRAND || '').trim().toUpperCase();
-                                if (custSA.vkorg === mapVkorg && custSA.vtweg === mapVtweg &&
-                                    mapBrand === brandUC &&
-                                    (!companyCode || mapBukrs === companyCode)) {
-                                    salesAreaMatch.vkorg = mapVkorg;
-                                    salesAreaMatch.vtweg = mapVtweg;
-                                    salesAreaMatch.spart = custSA.spart || String(mapRow.Spart || mapRow.SPART || '').trim();
-                                    salesAreaMatch.plant = String(mapRow.Site || mapRow.SITE || mapRow.Werks || mapRow.WERKS || '').trim();
-                                    console.log('buildPayload: ✓ Found brand-compatible alternative → VKORG=' +
-                                               salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg +
-                                               ' SPART=' + salesAreaMatch.spart + ' Plant=' + salesAreaMatch.plant +
-                                               ' Brand=' + mapBrand);
-                                    foundAlt = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    // Priority 2: Find intersection of customer SA + salesAreaMap (any brand, same BUKRS)
-                    if (!foundAlt) {
-                        console.log('buildPayload: No brand-compatible alternative. Trying any brand match...');
-                        for (var ca2 = 0; ca2 < customerSalesAreas.length && !foundAlt; ca2++) {
-                            var custSA2 = customerSalesAreas[ca2];
-                            for (var sl3 = 0; sl3 < salesAreaList.length; sl3++) {
-                                var mapRow2 = salesAreaList[sl3];
-                                var mapVkorg2 = String(mapRow2.Vkorg || mapRow2.VKORG || '').trim();
-                                var mapVtweg2 = String(mapRow2.Vtweg || mapRow2.VTWEG || '').trim();
-                                var mapBukrs2 = String(mapRow2.Bukrs || mapRow2.BUKRS || '').trim();
-                                if (custSA2.vkorg === mapVkorg2 && custSA2.vtweg === mapVtweg2 &&
-                                    (!companyCode || mapBukrs2 === companyCode)) {
-                                    salesAreaMatch.vkorg = mapVkorg2;
-                                    salesAreaMatch.vtweg = mapVtweg2;
-                                    salesAreaMatch.spart = custSA2.spart || String(mapRow2.Spart || mapRow2.SPART || '').trim();
-                                    salesAreaMatch.plant = String(mapRow2.Site || mapRow2.SITE || mapRow2.Werks || mapRow2.WERKS || '').trim();
-                                    var altBrand = String(mapRow2.Brand || mapRow2.BRAND || '').trim();
-                                    console.warn('buildPayload: ⚠ Using non-brand-matching alternative → VKORG=' +
-                                               salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg +
-                                               ' SPART=' + salesAreaMatch.spart + ' Plant=' + salesAreaMatch.plant +
-                                               ' MapBrand=' + altBrand + ' (product brand=' + brandUC + ')');
-                                    foundAlt = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-
-                    if (!foundAlt) {
-                        // No intersection found at all - keep original brand-based SA and log error
-                        console.error('buildPayload: ✗ NO VALID INTERSECTION: Customer ' + soldToParty +
-                                     ' sales areas [' + custSAList + '] have no match in salesAreaMap.' +
-                                     ' Keeping brand-based SA: ' + salesAreaMatch.vkorg + '/' + salesAreaMatch.vtweg);
-                    }
-                    console.log('SalesArea ADJUSTED → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
-                               ' SPART:' + salesAreaMatch.spart + ' Plant:' + salesAreaMatch.plant);
-                }
-            } else {
-                console.warn('buildPayload: Could not look up customer sales areas for ' + soldToParty + ', proceeding with current selection');
-            }
-        }
 
         var itemsArray = [];
         var errors = [];
@@ -1643,7 +1301,7 @@ async function s4Patch(entityWithKey, body) {
                 for (var j = 0; j < eanKeys.length; j++) { break; }
             }
             if (!material) {
-                errors.push('Row ' + (i + 1) + ': Material not found (EAN: ' + barcode2 + ')');
+                errors.push('Satır ' + (i + 1) + ': Malzeme bulunamadı (EAN: ' + barcode2 + ')');
                 continue;
             }
 
@@ -1695,96 +1353,67 @@ async function s4Patch(entityWithKey, body) {
     // ============================================================
     // FIND SALES AREA
     // ============================================================
-    function findSalesArea(salesAreaList, companyCode, matkl_fam, productBrand) {
+    function findSalesArea(salesAreaList, companyCode, matkl_fam) {
         var result = { vkorg: '', vtweg: '', spart: '', plant: '' };
         if (!salesAreaList || salesAreaList.length === 0 || !companyCode) {
             console.log('findSalesArea: empty list or no companyCode');
             return result;
         }
-        var brandUpper = (productBrand || '').trim().toUpperCase();
         console.log('findSalesArea: BUKRS=' + companyCode + ' MATKL_FAM=' + (matkl_fam || 'N/A') +
-                    ' Brand=' + (brandUpper || 'N/A') + ' in ' + salesAreaList.length + ' rows');
+                    ' in ' + salesAreaList.length + ' rows');
 
-        // 1) Best match: BUKRS + MATKL_FAM + Brand
-        if (matkl_fam && brandUpper) {
+        if (matkl_fam) {
             for (var i = 0; i < salesAreaList.length; i++) {
                 var row = salesAreaList[i];
                 var rowBukrs = String(row.Bukrs || row.BUKRS || '').trim();
                 var rowMatkl = String(row.MatklFam || row.MATKL_FAM || '').trim();
-                var rowBrand = String(row.Brand || row.BRAND || '').trim().toUpperCase();
-                if (rowBukrs === companyCode && rowMatkl === matkl_fam && rowBrand === brandUpper) {
+                if (rowBukrs === companyCode && rowMatkl === matkl_fam) {
                     result.vkorg = String(row.Vkorg || row.VKORG || '').trim();
                     result.vtweg = String(row.Vtweg || row.VTWEG || '').trim();
                     result.spart = String(row.Spart || row.SPART || '').trim();
                     result.plant = String(row.Site || row.SITE || row.Werks || row.WERKS || '').trim();
-                    console.log('findSalesArea: ✓ BUKRS+MATKL+BRAND MATCH row ' + i +
-                               ' Brand=' + rowBrand + ' BUKRS=' + rowBukrs +
+                    console.log('findSalesArea: ✓ MATKL_FAM MATCH row ' + i +
+                               ' Brand=' + (row.Brand || '') + ' BUKRS=' + rowBukrs +
                                ' MATKL_FAM=' + rowMatkl + ' VKORG=' + result.vkorg);
                     if (result.vkorg) return result;
                 }
             }
-            console.log('findSalesArea: No BUKRS+MATKL+BRAND match...');
+            console.log('findSalesArea: No MATKL_FAM match, trying default...');
         }
 
-        // 2) Match: BUKRS + Brand (ignore MATKL_FAM)
-        if (brandUpper) {
-            for (var b = 0; b < salesAreaList.length; b++) {
-                var rowB = salesAreaList[b];
-                var rowBukrsB = String(rowB.Bukrs || rowB.BUKRS || '').trim();
-                var rowBrandB = String(rowB.Brand || rowB.BRAND || '').trim().toUpperCase();
-                if (rowBukrsB === companyCode && rowBrandB === brandUpper) {
-                    result.vkorg = String(rowB.Vkorg || rowB.VKORG || '').trim();
-                    result.vtweg = String(rowB.Vtweg || rowB.VTWEG || '').trim();
-                    result.spart = String(rowB.Spart || rowB.SPART || '').trim();
-                    result.plant = String(rowB.Site || rowB.SITE || rowB.Werks || rowB.WERKS || '').trim();
-                    console.log('findSalesArea: ✓ BUKRS+BRAND MATCH row ' + b +
-                               ' Brand=' + rowBrandB + ' BUKRS=' + rowBukrsB + ' VKORG=' + result.vkorg);
-                    if (result.vkorg) return result;
-                }
+        var defaultMatches = [];
+        for (var j = 0; j < salesAreaList.length; j++) {
+            var row2 = salesAreaList[j];
+            var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
+            var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
+            var rowBrand = String(row2.Brand || row2.BRAND || '').trim().toUpperCase();
+            if (rowBukrs2 === companyCode && !rowMatkl2) {
+                defaultMatches.push({
+                    brand: rowBrand,
+                    vkorg: String(row2.Vkorg || row2.VKORG || '').trim(),
+                    vtweg: String(row2.Vtweg || row2.VTWEG || '').trim(),
+                    spart: String(row2.Spart || row2.SPART || '').trim(),
+                    plant: String(row2.Site || row2.SITE || row2.Werks || row2.WERKS || '').trim()
+                });
             }
-            console.log('findSalesArea: No BUKRS+BRAND match...');
         }
 
-        // 3) Match: BUKRS + MATKL_FAM (ignore brand)
-        if (matkl_fam) {
-            for (var i2 = 0; i2 < salesAreaList.length; i2++) {
-                var row2 = salesAreaList[i2];
-                var rowBukrs2 = String(row2.Bukrs || row2.BUKRS || '').trim();
-                var rowMatkl2 = String(row2.MatklFam || row2.MATKL_FAM || '').trim();
-                if (rowBukrs2 === companyCode && rowMatkl2 === matkl_fam) {
-                    result.vkorg = String(row2.Vkorg || row2.VKORG || '').trim();
-                    result.vtweg = String(row2.Vtweg || row2.VTWEG || '').trim();
-                    result.spart = String(row2.Spart || row2.SPART || '').trim();
-                    result.plant = String(row2.Site || row2.SITE || row2.Werks || row2.WERKS || '').trim();
-                    console.log('findSalesArea: ✓ BUKRS+MATKL MATCH row ' + i2 +
-                               ' Brand=' + (row2.Brand || '') + ' BUKRS=' + rowBukrs2 +
-                               ' MATKL_FAM=' + rowMatkl2 + ' VKORG=' + result.vkorg);
-                    if (result.vkorg) return result;
-                }
+        for (var d = 0; d < defaultMatches.length; d++) {
+            if (defaultMatches[d].brand === 'SON' && defaultMatches[d].vkorg) {
+                result = { vkorg: defaultMatches[d].vkorg, vtweg: defaultMatches[d].vtweg,
+                           spart: defaultMatches[d].spart, plant: defaultMatches[d].plant };
+                console.log('findSalesArea: ✓ DEFAULT MATCH (Brand=SON priority) VKORG=' + result.vkorg);
+                return result;
             }
-            console.log('findSalesArea: No BUKRS+MATKL match...');
         }
 
-        // 4) Fallback: Brand match across all BUKRS (company code mismatch)
-        if (brandUpper) {
-            for (var fb = 0; fb < salesAreaList.length; fb++) {
-                var rowFB = salesAreaList[fb];
-                var rowBrandFB = String(rowFB.Brand || rowFB.BRAND || '').trim().toUpperCase();
-                if (rowBrandFB === brandUpper) {
-                    result.vkorg = String(rowFB.Vkorg || rowFB.VKORG || '').trim();
-                    result.vtweg = String(rowFB.Vtweg || rowFB.VTWEG || '').trim();
-                    result.spart = String(rowFB.Spart || rowFB.SPART || '').trim();
-                    result.plant = String(rowFB.Site || rowFB.SITE || rowFB.Werks || rowFB.WERKS || '').trim();
-                    console.log('findSalesArea: ✓ BRAND-ONLY MATCH (fallback) row ' + fb +
-                               ' Brand=' + rowBrandFB + ' BUKRS=' + String(rowFB.Bukrs || rowFB.BUKRS || '') +
-                               ' VKORG=' + result.vkorg);
-                    if (result.vkorg) return result;
-                }
-            }
-            console.log('findSalesArea: No BRAND-only match...');
+        if (defaultMatches.length > 0 && defaultMatches[0].vkorg) {
+            result = { vkorg: defaultMatches[0].vkorg, vtweg: defaultMatches[0].vtweg,
+                       spart: defaultMatches[0].spart, plant: defaultMatches[0].plant };
+            console.log('findSalesArea: ✓ DEFAULT MATCH (first found) Brand=' + defaultMatches[0].brand + ' VKORG=' + result.vkorg);
+            return result;
         }
 
-        // 5) Last resort: BUKRS-only match (first found)
         for (var k = 0; k < salesAreaList.length; k++) {
             var row3 = salesAreaList[k];
             if (String(row3.Bukrs || row3.BUKRS || '').trim() === companyCode) {
@@ -1792,8 +1421,7 @@ async function s4Patch(entityWithKey, body) {
                 result.vtweg = String(row3.Vtweg || row3.VTWEG || '').trim();
                 result.spart = String(row3.Spart || row3.SPART || '').trim();
                 result.plant = String(row3.Site || row3.SITE || row3.Werks || row3.WERKS || '').trim();
-                console.log('findSalesArea: ✓ BUKRS-only match (last resort) Brand=' +
-                           (row3.Brand || 'N/A') + ' VKORG=' + result.vkorg);
+                console.log('findSalesArea: ✓ BUKRS-only match (fallback)');
                 if (result.vkorg) return result;
             }
         }
@@ -1981,5 +1609,4 @@ async function s4Patch(entityWithKey, body) {
         return find(where);
     }
 
-    await super.init();
 }}

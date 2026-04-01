@@ -22,14 +22,6 @@ service OCRService {
         missingBarcodes  : String;
     };
 
-    action retryPOLog(uuid : String) returns {
-        salesOrderNumber : String;
-        message          : String;
-        success          : Boolean;
-        itemCount        : Integer;
-        missingBarcodes  : String;
-    };
-
     action getPOLogs(statusFilter : String) returns array of {
         uuid             : String;
         processName      : String;
@@ -79,27 +71,13 @@ service OCRService {
         message : String;
     };
 
+
     action triggerLog(uuid : String) returns {
         success    : Boolean;
         message    : String;
         salesOrder : String;
     };
 
-    action deletePOLog(uuid : String) returns {
-        success : Boolean;
-        message : String;
-    };
-
-    action triggerOCR(
-        uuid        : String,
-        pdfContent  : String,
-        pdfName     : String,
-        mailSubject : String
-    ) returns {
-        success : Boolean;
-        message : String;
-        uuid    : String;
-    };
 
     // ==========================================
     // Entities
@@ -125,6 +103,7 @@ service OCRService {
             TaxId            : String;
             VendorNo         : String;
             Status           : String;
+            StatusCriticality : Integer;
             SalesOrderNumber : String;
             ErrorMessage     : String;
             MissingBarcodes  : String;

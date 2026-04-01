@@ -1,223 +1,228 @@
-# Jumbo OCR to Sales Order Automation
+# JumboOCR - Purchase Order to Sales Order Automation
 
-CAP proxy service that creates S/4HANA Sales Orders from Document AI extracted Purchase Orders.
+SAP BTP application that automates Sales Order creation in S/4HANA from Purchase Order PDFs received via email. Uses SAP Build Process Automation (BPA) for email monitoring and Document AI for PDF extraction, with a custom Fiori Elements UI for monitoring and re-triggering failed orders.
 
-## 📋 Architecture
+## Architecture
+
 ```
-Email (PDF) → Document AI → SAP Build Process Automation → CAP Service → S/4HANA
-                                                               ↓
-                                                    handheldterminal_cap
-```
+                        SAP Build Process Automation (BPA)
+                        ┌─────────────────────────────────────────────┐
+Outlook Mailbox ──────> │ 1. Get Email (PDF attachment)               │
+  (PO PDFs)             │ 2. Extract Data (Document AI template)      │
+                        │ 3. Map OCR Response                         │
+                        │ 4. Call lookupShipToAndSalesArea             │
+                        │ 5. Call processAndCreateSalesOrder           │
+                        │ 6. Log result (success/failure)             │
+                        └──────────────┬──────────────────────────────┘
+                                       │ OData V4
+                                       ▼
+                        ┌─────────────────────────────────────────────┐
+                        │         CAP OData Service (ocr-srv)         │
+                        │                                             │
+                        │  - ShipTo & Sales Area lookup               │
+                        │  - Product lookup (EAN → Material)          │
+                        │  - Sales Area mapping (Brand-based)         │
+                        │  - Sales Order creation (API_SALES_ORDER)   │
+                        │  - Log management (OCRLogHead CRUD)         │
+                        └──────────────┬──────────────────────────────┘
+                                       │ RFC / OData
+                                       ▼
+                        ┌─────────────────────────────────────────────┐
+                        │              S/4HANA On-Premise             │
+                        │                                             │
+                        │  - API_SALES_ORDER_SRV (SO creation)        │
+                        │  - API_BUSINESS_PARTNER (SoldTo lookup)     │
+                        │  - API_PRODUCT_SRV (Material/EAN lookup)    │
+                        │  - ZSDOCR custom OData (Log storage)        │
+                        │  - ZSDOCR ShipTo/SalesArea mapping          │
+                        └─────────────────────────────────────────────┘
 
-## 🎯 Features
-
-- ✅ Parse Document AI extraction data (headerFields + lineItems)
-- ✅ Map PO fields to S/4HANA Sales Order format
-- ✅ Create Sales Orders via BTP destination (handheldterminal_cap)
-- ✅ No local database (stateless proxy)
-- ✅ No customer/material mapping (direct from PDF)
-- ✅ Validation before S/4HANA call
-- ✅ Comprehensive error handling and logging
-
-## 🔧 Prerequisites
-
-- **BTP Destination**: `handheldterminal_cap` (already configured)
-- **S/4HANA API**: `API_SALES_ORDER_SRV`
-- **Cloud Foundry**: CLI and access
-- **Node.js**: v18 or v20
-
-## 🚀 Setup
-
-### 1. Install Dependencies
-```bash
-npm install
-```
-
-### 2. Verify BTP Destination
-
-Ensure `handheldterminal_cap` destination exists in BTP Cockpit:
-- Name: `handheldterminal_cap`
-- Type: HTTP
-- Proxy Type: OnPremise
-- Authentication: BasicAuthentication
-
-### 3. Deploy to Cloud Foundry
-```bash
-cf login -a https://api.cf.eu10-004.hana.ondemand.com
-cf target -o "Jumbo Electronics Company Limited LLC_jumbo-dev-rhvtsopa" -s Jumbo_Dev_Space
-cf push jumbo-ocr-srv
-```
-
-## 📡 API Endpoints
-
-### Create Sales Order from Extraction
-```http
-POST /odata/v4/ocr/createSalesOrderFromExtraction
-Content-Type: application/json
-
-{
-  "extractionData": "{\"extraction\":{\"headerFields\":[...],\"lineItems\":[...]}}"
-}
+                        ┌─────────────────────────────────────────────┐
+                        │     Fiori Elements UI (OCR Log Trigger)     │
+                        │                                             │
+                        │  - List Report: all PO logs with filters    │
+                        │  - Object Page: log detail + items          │
+                        │  - Edit popup: modify header & item fields  │
+                        │  - Trigger button: re-trigger failed logs   │
+                        └─────────────────────────────────────────────┘
 ```
 
-**Response:**
-```json
-{
-  "salesOrderNumber": "0000012345",
-  "message": "Sales Order 0000012345 created successfully from PO 007-26008851",
-  "success": true
-}
-```
+## BPA Flow (Automated Email Processing)
 
-### Validate Extraction Data
-```http
-POST /odata/v4/ocr/validateExtraction
-Content-Type: application/json
+1. **Get Email**: BPA monitors an Outlook mailbox for new PO emails with PDF attachments
+2. **Extract Data**: Document AI extracts header fields (PO number, dates, amounts) and line items (barcode, quantity, price) from the PDF
+3. **Lookup ShipTo & Sales Area**: Calls `lookupShipToAndSalesArea` with the process name (e.g. "Lulu", "Carrefour") to get customer ShipTo partners and sales area mapping
+4. **Create Sales Order**: Calls `processAndCreateSalesOrder` which:
+   - Saves the PO log to S/4HANA (OCRLogHead + OCRLogItem)
+   - Looks up materials by EAN barcode (API_PRODUCT_SRV)
+   - Finds SoldToParty from ShipTo partners based on delivery address
+   - Resolves company code and sales area based on Brand + Material Group
+   - Creates the Sales Order via API_SALES_ORDER_SRV
+   - Updates the log with SUCCESS/FAILED status and SO number
 
-{
-  "extractionData": "{\"extraction\":{...}}"
-}
-```
+### Supported Customers (Process Names)
 
-**Response:**
-```json
-{
-  "valid": true,
-  "errors": []
-}
-```
+| Process Name | SO Type | Notes |
+|-------------|---------|-------|
+| Carrefour   | 1SHD*   | Ship-to delivery address fields |
+| Emax        | 1SHD*   | Ship-to delivery address fields |
+| Retail      | 1SHD*   | Ship-to delivery address fields |
+| Lulu        | 1SHD*   | Ship-to delivery address fields |
+| SharafDG    | 1SHD*   | Ship-to delivery address fields |
+| Eros        | 1SHD*   | Ship-to delivery address fields |
+| Sephora     | 1SSR    | Standard sales order |
+| Dyson       | 1SSR    | Standard sales order |
 
-### Health Check
-```http
-GET /health
-GET /ping
-```
+*1SHD is used when vendor address is available; otherwise falls back to 1SSR.
 
-## 🔄 Data Flow
-```
-Document AI Extraction
-{
-  "extraction": {
-    "headerFields": [
-      {"name": "purchaseOrder", "value": "007-26008851"},
-      {"name": "receiverId", "value": "1100019"},
-      {"name": "documentDate", "value": "2026-02-05"},
-      {"name": "currencyCode", "value": "AED"}
-    ],
-    "lineItems": [[
-      {"name": "customerMaterialNumber", "value": "470521-01"},
-      {"name": "quantity", "value": 2},
-      {"name": "unitPrice", "value": 1765.35}
-    ]]
-  }
-}
-        ↓
-CAP Service Mapping
-        ↓
-S/4HANA Sales Order
-{
-  "SalesOrderType": "1SDS",
-  "SoldToParty": "1100019",
-  "PurchaseOrderByCustomer": "007-26008851",
-  "to_Partner": [...],
-  "to_Item": [{
-    "MaterialByCustomer": "470521-01",
-    "RequestedQuantity": "2"
-  }]
-}
-```
+## Fiori Elements UI (OCR Log Trigger)
 
-## ⚙️ Configuration
+A custom SAP Fiori Elements V4 List Report + Object Page for monitoring and managing OCR logs.
 
-Environment variables (in `manifest.yml`):
+### List Report Screen
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| S4HANA_SALES_ORG | D106 | Sales Organization |
-| S4HANA_DIST_CHANNEL | 02 | Distribution Channel |
-| S4HANA_DIVISION | 00 | Division |
-| S4HANA_SO_TYPE | 1SDS | Sales Order Type |
-| S4HANA_PAYMENT_TERMS | Z000 | Payment Terms |
-| S4HANA_PLANT | DODY | Production Plant |
+Displays all PO processing logs with:
+- **Filters**: Status, Purchase Order, Sales Order Number, Process Name, Created At
+- **Columns**: Status (with criticality colors), Process, PDF, PO Number, Sales Order, Created At, Currency, Gross Amount, Discount, Item Count, Net Amount, Error Message
 
-## 📊 Document AI Schema Mapping
+### Object Page (Detail Screen)
 
-### Header Fields
+Three field groups:
+- **Status**: Status (with color indicator), Sales Order, Error Message
+- **Order Info**: Purchase Order, Delivery Date, Document Date, Currency, Net Amount, Gross Amount
+- **Log Details**: PDF Name, Mail Subject, Delivery Address, Vendor Address, Created At, Updated At
 
-| Document AI Field | S/4HANA Field |
-|-------------------|---------------|
-| purchaseOrder | PurchaseOrderByCustomer |
-| receiverId | SoldToParty |
-| documentDate | CustomerPurchaseOrderDate |
-| deliveryAdress | to_Partner.to_Address |
-| currencyCode | TransactionCurrency |
+**Items Table**: Item No, Barcode, Description, Material, Qty, Unit Price, UOM, Discount
 
-### Line Item Fields
+### Actions
 
-| Document AI Field | S/4HANA Field |
-|-------------------|---------------|
-| customerMaterialNumber | MaterialByCustomer |
-| quantity | RequestedQuantity |
-| unitPrice | to_PricingElement[ZMAN] |
-| DiscValue | to_PricingElement[ZRDV] |
-| VATValue | to_PricingElement[ZVAT] |
+- **Trigger**: Re-triggers Sales Order creation for failed/edited logs. Reads current log data from S/4HANA, performs fresh ShipTo/SalesArea lookup, and attempts SO creation again. Disabled when a Sales Order already exists.
+- **Edit**: Opens a popup to edit header fields (Purchase Order, Net Amount, Gross Amount, Currency, Delivery Address, Vendor Address) and item fields (Barcode, Material Number, Unit Price, Discount). Saves changes to S/4HANA via PATCH. Disabled when a Sales Order already exists.
 
-## 🐛 Troubleshooting
+## Project Structure
 
-### Check Logs
-```bash
-cf logs jumbo-ocr-srv --recent
-```
-
-### Test Health
-```bash
-curl https://jumbo-ocr-srv.cfapps.eu10-004.hana.ondemand.com/health
-```
-
-### Common Issues
-
-1. **Token Expired**: Re-login with `cf login`
-2. **Destination Not Found**: Check `handheldterminal_cap` exists in BTP
-3. **S/4HANA Error**: Check logs for detailed error message
-4. **Validation Failed**: Ensure all required fields are in extraction data
-
-## 📝 Notes
-
-- **No Database**: Service is stateless, no data persistence
-- **No Mapping**: Customer and material numbers used directly from PDF
-- **Validation**: Data validated before S/4HANA call
-- **Error Handling**: Comprehensive error messages for debugging
-
-## 🔗 Related Components
-
-- **Document AI**: Jumbo_OCR_purchaseOrder_schema_with_numbers
-- **SAP Build**: CarrefourOCRAutomation workflow
-- **Outlook**: JumboOCRDemoCarrefour folder
-- **Destination**: handheldterminal_cap (OnPremise → S/4HANA)
-
-## 📞 Support
-
-For issues or questions, check:
-1. Cloud Foundry logs: `cf logs jumbo-ocr-srv --recent`
-2. BTP destination configuration
-3. S/4HANA API connectivity
-
----
-
-**Version**: 1.0.0  
-**Last Updated**: February 2026
-```
-
----
-
-## 🗂️ PROJE YAPISI
 ```
 JumboOCR/
 ├── srv/
-│   ├── ocr-service.cds          ✅
-│   ├── ocr-service.js           ✅
-│   └── server.js                ✅
-├── package.json                  ✅
-├── manifest.yml                  ✅
-├── .gitignore                    ✅
-└── README.md                     ✅
+│   ├── ocr-service.cds              # Service definition (entities + actions)
+│   ├── ocr-service.js               # Service implementation
+│   └── server.js                    # CAP server bootstrap
+├── app/
+│   ├── ocr-trigger/                 # Fiori Elements source
+│   │   ├── annotations.cds          # UI annotations (fields, columns, facets)
+│   │   └── webapp/ext/
+│   │       ├── ObjectPageExt.js      # Edit popup logic
+│   │       └── OPControllerExtension.controller.js  # Trigger button logic
+│   └── fiori/                       # Built/deployed UI artifacts
+│       ├── Component-preload.js     # Minified bundle
+│       └── ext/                     # Debug versions of extensions
+├── mta.yaml                         # MTA build descriptor
+├── package.json                     # Dependencies and scripts
+└── xs-app.json                      # App Router configuration
+```
+
+## OData Service (ocr-srv)
+
+**Endpoint**: `/odata/v4/ocr`
+
+### Actions (called by BPA)
+
+| Action | Description |
+|--------|-------------|
+| `lookupShipToAndSalesArea(ocrCompany)` | Returns ShipTo partners and Sales Area mapping for a customer |
+| `processAndCreateSalesOrder(extractedData, shipToAndSalesArea, processName, pdfName, mailSubject)` | Full flow: save log, lookup materials, create SO, update log |
+
+### Actions (called by UI)
+
+| Action | Description |
+|--------|-------------|
+| `triggerLog(uuid)` | Re-trigger SO creation for an existing log |
+| `updatePOLogData(uuid, headerData, itemsData)` | Update log header and item fields |
+
+### Entities (proxied to S/4HANA)
+
+Both entities use `@cds.persistence.skip: true` - no local database. All reads/writes are proxied to S/4HANA custom OData service (ZSDOCR).
+
+| Entity | Description |
+|--------|-------------|
+| `OCRLogs` | PO processing log headers (status, amounts, dates, addresses) |
+| `OCRItems` | Line items per log (barcode, material, quantity, price) |
+
+## Sales Area Resolution
+
+The system resolves the correct Sales Organization based on a priority matching algorithm:
+
+1. **BUKRS + MATKL_FAM + Brand** (best match - company code, material group family, and product brand)
+2. **BUKRS + Brand** (company code + brand, ignoring material group)
+3. **BUKRS + MATKL_FAM** (company code + material group, ignoring brand)
+4. **Brand only** (cross-company fallback)
+5. **BUKRS only** (last resort)
+
+The Brand is fetched from `API_PRODUCT_SRV` alongside material lookup. Material Group Family (MATKL_FAM) is the first 3 characters of the ProductGroup.
+
+## BTP Destinations
+
+| Destination | Type | Usage |
+|-------------|------|-------|
+| `QS4_HTTPS` | On-Premise (Cloud Connector) | S/4HANA API calls (SO creation, product lookup, log CRUD) |
+
+## Build and Deploy
+
+```bash
+# Install dependencies
+npm install
+
+# Build MTA archive
+mbt build
+
+# Deploy to Cloud Foundry
+cf login -a https://api.cf.eu10-004.hana.ondemand.com
+cf deploy mta_archives/archive.mtar --retries 1
+
+# Check logs
+cf logs ocr-srv --recent
+cf logs jumbo-ocr-approuter --recent
+```
+
+### Build Process
+
+1. `npm ci` - Install dependencies
+2. `npx cds build --production` - Build CDS artifacts
+3. `npm --prefix app/ocr-trigger install && run build:cf` - Build Fiori app
+4. Copy `app/ocr-trigger/dist/` to `app/fiori/` - Stage for deployment
+5. `mbt build` - Package MTA archive
+6. `cf deploy` - Deploy to BTP
+
+## Troubleshooting
+
+### Common Errors
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `SoldToParty not found` | ShipTo partner not found for delivery address | Check ZSDOCR ShipTo mapping in S/4HANA |
+| `Article X is not defined for sales org Y` | Wrong Sales Area selected for the product brand | Check Brand mapping in ZSDOCR SalesAreaMap |
+| `Material not found (EAN: X)` | Barcode not in A_Product master data | Add product with EAN in S/4HANA |
+| `Property 'X' is invalid` | PATCH body contains non-existent S/4HANA field | Check OCRLogHead entity fields in S/4HANA |
+
+### Check Logs
+
+```bash
+# CAP service logs
+cf logs ocr-srv --recent
+
+# App Router logs  
+cf logs jumbo-ocr-approuter --recent
+```
+
+## Tech Stack
+
+- **SAP CAP** (Node.js) - OData V4 service framework
+- **SAP Fiori Elements V4** - List Report + Object Page
+- **SAP Build Process Automation** - Email monitoring and Document AI
+- **SAP Cloud SDK** - HTTP client for S/4HANA connectivity
+- **S/4HANA** - Sales Order, Business Partner, Product APIs + custom ZSDOCR OData
+
+---
+
+**Version**: 1.0.0
+**Last Updated**: March 2026

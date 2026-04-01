@@ -56,29 +56,46 @@ annotate service.OCRLogs with {
     // Read-only alanlar
     Uuid             @Core.Immutable: true
                      @UI.HiddenFilter: true;
-    ProcessName      @Core.Computed: true;
-    PdfName          @Core.Computed: true;
+    ProcessName      @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '7rem' };
+    PdfName          @Core.Computed: true
+                     @HTML5.CssDefaults: { width: '18rem' };
     MailSubject      @Core.Computed: true;
-    Status           @Core.Computed: true;
-    SalesOrderNumber @Core.Computed: true;
-    ErrorMessage     @Core.Computed: true;
-    MissingBarcodes  @Core.Computed: true;
-    ItemCount        @Core.Computed: true;
-    CreatedAt        @Core.Computed: true;
-    UpdatedAt        @Core.Computed: true;
-    NetAmount        @title: 'Net Amount';
-    GrossAmount      @title: 'Gross Amount';
+    Status           @readonly
+                     @HTML5.CssDefaults: { width: '7rem' };
+    StatusCriticality @Core.Computed: true
+                     @UI.HiddenFilter: true;
+    SalesOrderNumber @readonly
+                     @HTML5.CssDefaults: { width: '9rem' };
+    ErrorMessage     @readonly
+                     @UI.MultiLineText: true
+                     @HTML5.CssDefaults: { width: '20rem' };
+    MissingBarcodes  @UI.Hidden: true
+                     @UI.HiddenFilter: true;
+    ItemCount        @readonly
+                     @HTML5.CssDefaults: { width: '6rem' };
+    CreatedAt        @readonly
+                     @HTML5.CssDefaults: { width: '12rem' };
+    UpdatedAt        @readonly;
+    NetAmount        @title: 'Net Amount'
+                     @HTML5.CssDefaults: { width: '8rem' };
+    GrossAmount      @title: 'Gross Amount'
+                     @HTML5.CssDefaults: { width: '8rem' };
     TotalVat         @Core.Computed: true;
 
     // Edit edilebilir alanlar
-    PurchaseOrder    @title: 'Purchase Order';
+    PurchaseOrder    @title: 'Purchase Order'
+                     @HTML5.CssDefaults: { width: '10rem' };
     DeliveryDate     @title: 'Delivery Date';
     DocumentDate     @title: 'Document Date';
-    ReceiverId       @title: 'Receiver ID';
-    CurrencyCode     @title: 'Currency';
+    ReceiverId       @UI.Hidden: true
+                     @UI.HiddenFilter: true;
+    CurrencyCode     @title: 'Currency'
+                     @HTML5.CssDefaults: { width: '6rem' };
     DeliveryAdress   @title: 'Delivery Address';
     VendorAdress     @title: 'Vendor Address';
-    Discount         @title: 'Discount';
+    Discount         @title: 'Discount'
+                     @HTML5.CssDefaults: { width: '6rem' };
 }
 
 // ============================================================
@@ -106,10 +123,11 @@ annotate service.OCRItems with {
 // ============================================================
 annotate service.OCRLogs with @(
     UI.SelectionFields: [
+        Status,
         PurchaseOrder,
         SalesOrderNumber,
         ProcessName,
-        DocumentDate
+        CreatedAt
     ]
 );
 
@@ -119,8 +137,12 @@ annotate service.OCRLogs with @(
 annotate service.OCRLogs with @(
     UI.LineItem: [
         {
-
-
+            $Type       : 'UI.DataField',
+            Value       : Status,
+            Label       : 'Status',
+            Criticality : StatusCriticality
+        },
+        {
             $Type : 'UI.DataField',
             Value : ProcessName,
             Label : 'Process'
@@ -131,20 +153,11 @@ annotate service.OCRLogs with @(
             Label : 'PDF'
         },
         {
-
-
             $Type : 'UI.DataField',
             Value : PurchaseOrder,
             Label : 'PO Number'
         },
         {
-            $Type : 'UI.DataField',
-            Value : Status,
-            Label : 'Status'
-        },
-        {
-
-
             $Type : 'UI.DataField',
             Value : SalesOrderNumber,
             Label : 'Sales Order'
@@ -155,11 +168,35 @@ annotate service.OCRLogs with @(
             Label : 'Created At'
         },
         {
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Trigger',
-            Action : 'OCRService.triggerLog',
-            Inline : true
-        }
+            $Type : 'UI.DataField',
+            Value : CurrencyCode,
+            Label : 'Currency'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : GrossAmount,
+            Label : 'Gross Amount'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : Discount,
+            Label : 'Discount'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : ItemCount,
+            Label : 'ItemCount'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : NetAmount,
+            Label : 'Net Amount'
+        },
+        {
+            $Type : 'UI.DataField',
+            Value : ErrorMessage,
+            Label : 'Error Message'
+        },
     ]
 );
 
@@ -182,15 +219,14 @@ annotate service.OCRLogs with @(
 annotate service.OCRLogs with @(
 
     UI.FieldGroup #Status: {
-
-
         $Type : 'UI.FieldGroupType',
         Label : 'Status',
         Data  : [
             {
-                $Type : 'UI.DataField',
-                Value : Status,
-                Label : 'Status'
+                $Type       : 'UI.DataField',
+                Value       : Status,
+                Label       : 'Status',
+                Criticality : StatusCriticality
             },
             {
 
@@ -203,13 +239,6 @@ annotate service.OCRLogs with @(
                 $Type : 'UI.DataField',
                 Value : ErrorMessage,
                 Label : 'Error Message'
-            },
-            {
-
-
-                $Type : 'UI.DataField',
-                Value : MissingBarcodes,
-                Label : 'Missing Barcodes'
             }
         ]
     },
@@ -236,11 +265,6 @@ annotate service.OCRLogs with @(
                 $Type : 'UI.DataField',
                 Value : DocumentDate,
                 Label : 'Document Date'
-            },
-            {
-                $Type : 'UI.DataField',
-                Value : ReceiverId,
-                Label : 'Receiver ID'
             },
             {
 
@@ -353,15 +377,7 @@ annotate service.OCRLogs with @(
     // ============================================================
     // Object Page - Identification (Header Action Buttons)
     // ============================================================
-    UI.Identification: [
-        {
-
-
-            $Type  : 'UI.DataFieldForAction',
-            Label  : 'Trigger',
-            Action : 'OCRService.triggerLog'
-        }
-    ]
+    UI.Identification: []
 );
 
 // ============================================================
