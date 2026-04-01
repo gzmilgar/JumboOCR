@@ -804,36 +804,59 @@ this.on('updatePOLogData', async (req) => {
     // ============================================================
     // INTERNAL: autoSavePOLog → POST to S/4HANA
     // ============================================================
+    function _sanitizeText(str, maxLen) {
+        if (!str) return '';
+        var s = String(str)
+            .replace(/[\x00-\x1F\x7F]/g, ' ')
+            .replace(/\\"/g, '"')
+            .replace(/\\/g, '')
+            .replace(/\t/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (maxLen && s.length > maxLen) s = s.substring(0, maxLen);
+        return s;
+    }
+
     async function autoSavePOLog(fields) {
         var uuid = require('crypto').randomUUID();
         try {
             var now = new Date().toISOString().slice(0, 19).replace('T', '').replace(/[-:]/g, '');
+
+            var deliveryDate = fields.deliveryDate || '';
+            var documentDate = fields.documentDate || '';
+            if (deliveryDate === 'null' || deliveryDate === null) deliveryDate = '';
+            if (documentDate === 'null' || documentDate === null) documentDate = '';
+
+            var validItems = (fields.lineItems || []).filter(function (item) {
+                return (parseFloat(item.quantity) || 0) > 0;
+            });
+
             var body = {
                 Uuid:           uuid,
-                ProcessName:    fields.processName || '',
-                PdfName:        fields.pdfName || '',
-                MailSubject:    fields.mailSubject || '',
-                PurchaseOrder:  fields.purchaseOrder || '',
-                DeliveryDate:   fields.deliveryDate || null,
-                DocumentDate:   fields.documentDate || null,
-                ReceiverId:     fields.receiverId || '',
-                CurrencyCode:   fields.currencyCode || '',
+                ProcessName:    _sanitizeText(fields.processName, 100),
+                PdfName:        _sanitizeText(fields.pdfName, 255),
+                MailSubject:    _sanitizeText(fields.mailSubject, 255),
+                PurchaseOrder:  _sanitizeText(fields.purchaseOrder, 35),
+                DeliveryDate:   deliveryDate,
+                DocumentDate:   documentDate,
+                ReceiverId:     _sanitizeText(fields.receiverId, 40),
+                CurrencyCode:   _sanitizeText(fields.currencyCode, 5),
                 NetAmount:      parseFloat(fields.netAmount) || 0,
                 GrossAmount:    parseFloat(fields.grossAmount) || 0,
                 TotalVat:       fields.totalVat ? String(fields.totalVat) : '000000000',
                 Discount:       parseFloat(fields.discount) || 0,
-                DeliveryAdress: fields.deliveryAdress || '',
-                VendorAdress:   fields.vendorAdress || '',
+                DeliveryAdress: _sanitizeText(fields.deliveryAdress, 255),
+                VendorAdress:   _sanitizeText(fields.vendorAdress, 255),
                 Status:         'PENDING',
                 CreatedAt:      now,
                 UpdatedAt:      now,
-                _Items: (fields.lineItems || []).map(function (item, idx) {
+                _Items: validItems.map(function (item, idx) {
                     return {
                         HeaderId:       uuid,
                         ItemNumber:     String((idx + 1) * 10).padStart(6, '0'),
-                        Barcode:        (item.barcode || '').replace(/^0+/, ''),
-                        Description:    item.description || '',
-                        MaterialNumber: item.materialNumber || '',
+                        Barcode:        _sanitizeText((item.barcode || '').replace(/^0+/, ''), 40),
+                        Description:    _sanitizeText(item.description, 256),
+                        MaterialNumber: _sanitizeText(item.materialNumber, 40),
                         Unit:           'EA',
                         Quantity:       parseFloat(item.quantity) || 0,
                         UnitPrice:      parseFloat(item.unitPrice) || 0,
@@ -841,12 +864,17 @@ this.on('updatePOLogData', async (req) => {
                     };
                 })
             };
+            console.log('autoSavePOLog: sending ' + body._Items.length + ' items (filtered from ' + (fields.lineItems || []).length + ')');
             var response = await s4Post('OCRLogHead', body);
             uuid = response.data?.Uuid || uuid;
             console.log('autoSavePOLog: created Uuid=' + uuid);
             return uuid;
         } catch (e) {
-            console.error('autoSavePOLog error: ' + e.message);
+            var errDetail = '';
+            if (e.response) {
+                errDetail = ' status=' + e.response.status + ' body=' + JSON.stringify(e.response.data).substring(0, 500);
+            }
+            console.error('autoSavePOLog error: ' + e.message + errDetail);
             return uuid;
         }
     }
