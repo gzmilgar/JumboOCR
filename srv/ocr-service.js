@@ -1248,9 +1248,9 @@ async function s4Patch(entityWithKey, body) {
     async function lookupMaterialSalesArea(material) {
         if (!material) return [];
         try {
-            var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_ProductSalesDelivery"
-                + "?$filter=" + encodeURIComponent("Product eq '" + material + "'")
-                + "&$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision"
+            // Use navigation property from A_Product to avoid 404 on direct A_ProductSalesDelivery access
+            var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('" + encodeURIComponent(material) + "')/to_SalesDelivery"
+                + "?$select=Product,ProductSalesOrg,ProductDistributionChnl,ProductDivision"
                 + "&$format=json";
             var response = await executeHttpRequest(
                 { destinationName: 'QS4_HTTPS' },
@@ -1271,6 +1271,39 @@ async function s4Patch(entityWithKey, body) {
             return salesAreas;
         } catch (e) {
             console.error('lookupMaterialSalesArea error: ' + e.message);
+            return [];
+        }
+    }
+
+    // ============================================================
+    // LOOKUP CUSTOMER SALES AREAS from A_CustomerSalesArea
+    // ============================================================
+    async function lookupCustomerSalesAreas(customer) {
+        if (!customer) return [];
+        try {
+            var url = "/sap/opu/odata/sap/API_BUSINESS_PARTNER/A_CustomerSalesArea"
+                + "?$filter=" + encodeURIComponent("Customer eq '" + customer + "'")
+                + "&$select=Customer,SalesOrganization,DistributionChannel,Division"
+                + "&$format=json";
+            var response = await executeHttpRequest(
+                { destinationName: 'QS4_HTTPS' },
+                { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+            );
+            var results = response.data?.d?.results || [];
+            console.log('lookupCustomerSalesAreas: Customer=' + customer + ' found ' + results.length + ' sales areas');
+            var salesAreas = [];
+            for (var i = 0; i < results.length; i++) {
+                var sa = {
+                    vkorg: String(results[i].SalesOrganization || '').trim(),
+                    vtweg: String(results[i].DistributionChannel || '').trim(),
+                    spart: String(results[i].Division || '').trim()
+                };
+                console.log('  CustomerSalesArea[' + i + ']: VKORG=' + sa.vkorg + ' VTWEG=' + sa.vtweg + ' SPART=' + sa.spart);
+                salesAreas.push(sa);
+            }
+            return salesAreas;
+        } catch (e) {
+            console.error('lookupCustomerSalesAreas error: ' + e.message);
             return [];
         }
     }
@@ -1481,6 +1514,75 @@ async function s4Patch(entityWithKey, body) {
         }
         console.log('SalesArea FINAL → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
                    ' SPART:' + salesAreaMatch.spart + ' Plant:' + salesAreaMatch.plant);
+
+        // Validate chosen sales area against customer's actual assignments
+        if (soldToParty && salesAreaMatch.vkorg) {
+            var customerSalesAreas = await lookupCustomerSalesAreas(soldToParty);
+            if (customerSalesAreas.length > 0) {
+                var isValid = false;
+                for (var cv = 0; cv < customerSalesAreas.length; cv++) {
+                    if (customerSalesAreas[cv].vkorg === salesAreaMatch.vkorg &&
+                        customerSalesAreas[cv].vtweg === salesAreaMatch.vtweg) {
+                        isValid = true;
+                        // Use customer's division if it differs (customer master takes precedence)
+                        if (customerSalesAreas[cv].spart && customerSalesAreas[cv].spart !== salesAreaMatch.spart) {
+                            console.log('buildPayload: Adjusting Division from ' + salesAreaMatch.spart +
+                                       ' to ' + customerSalesAreas[cv].spart + ' (customer master)');
+                            salesAreaMatch.spart = customerSalesAreas[cv].spart;
+                        }
+                        console.log('buildPayload: ✓ Customer ' + soldToParty + ' is assigned to sales area ' +
+                                   salesAreaMatch.vkorg + '/' + salesAreaMatch.vtweg + '/' + salesAreaMatch.spart);
+                        break;
+                    }
+                }
+                if (!isValid) {
+                    console.warn('buildPayload: ✗ Customer ' + soldToParty + ' NOT assigned to ' +
+                                salesAreaMatch.vkorg + '/' + salesAreaMatch.vtweg +
+                                '. Searching for valid alternative...');
+                    // Try to find an alternative sales area the customer IS assigned to
+                    // that also exists in our salesAreaMap
+                    var foundAlt = false;
+                    for (var ca = 0; ca < customerSalesAreas.length && !foundAlt; ca++) {
+                        var custSA = customerSalesAreas[ca];
+                        for (var sl2 = 0; sl2 < salesAreaList.length; sl2++) {
+                            var mapRow = salesAreaList[sl2];
+                            var mapVkorg = String(mapRow.Vkorg || mapRow.VKORG || '').trim();
+                            var mapVtweg = String(mapRow.Vtweg || mapRow.VTWEG || '').trim();
+                            var mapBukrs = String(mapRow.Bukrs || mapRow.BUKRS || '').trim();
+                            if (custSA.vkorg === mapVkorg && custSA.vtweg === mapVtweg &&
+                                (!companyCode || mapBukrs === companyCode)) {
+                                salesAreaMatch.vkorg = mapVkorg;
+                                salesAreaMatch.vtweg = mapVtweg;
+                                salesAreaMatch.spart = custSA.spart || String(mapRow.Spart || mapRow.SPART || '').trim();
+                                salesAreaMatch.plant = String(mapRow.Site || mapRow.SITE || mapRow.Werks || mapRow.WERKS || '').trim();
+                                console.log('buildPayload: ✓ Found valid alternative sales area → VKORG=' +
+                                           salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg +
+                                           ' SPART=' + salesAreaMatch.spart + ' Plant=' + salesAreaMatch.plant);
+                                foundAlt = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!foundAlt) {
+                        // Last resort: use customer's first sales area that matches companyCode
+                        for (var ca2 = 0; ca2 < customerSalesAreas.length; ca2++) {
+                            // Accept any customer sales area as last resort
+                            salesAreaMatch.vkorg = customerSalesAreas[ca2].vkorg;
+                            salesAreaMatch.vtweg = customerSalesAreas[ca2].vtweg;
+                            salesAreaMatch.spart = customerSalesAreas[ca2].spart;
+                            console.warn('buildPayload: Using customer first sales area as last resort → VKORG=' +
+                                        salesAreaMatch.vkorg + ' VTWEG=' + salesAreaMatch.vtweg +
+                                        ' SPART=' + salesAreaMatch.spart);
+                            break;
+                        }
+                    }
+                    console.log('SalesArea ADJUSTED → VKORG:' + salesAreaMatch.vkorg + ' VTWEG:' + salesAreaMatch.vtweg +
+                               ' SPART:' + salesAreaMatch.spart + ' Plant:' + salesAreaMatch.plant);
+                }
+            } else {
+                console.warn('buildPayload: Could not look up customer sales areas for ' + soldToParty + ', proceeding with current selection');
+            }
+        }
 
         var itemsArray = [];
         var errors = [];
