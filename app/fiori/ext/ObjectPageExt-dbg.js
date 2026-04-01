@@ -26,9 +26,7 @@ sap.ui.define([
 
             var oModel = oBindingContext.getModel();
 
-            // Use requestObject for fresh data from OData V4 context
             oBindingContext.requestObject().then(function (oData) {
-                // Do not allow edit if Sales Order already created
                 if (oData.SalesOrderNumber) {
                     sap.m.MessageBox.warning(
                         "Sales Order " + oData.SalesOrderNumber + " already created. Editing is not allowed.",
@@ -46,6 +44,7 @@ sap.ui.define([
                             barcode: obj.Barcode || "",
                             description: obj.Description || "",
                             materialNumber: obj.MaterialNumber || "",
+                            quantity: obj.Quantity != null ? String(obj.Quantity) : "0",
                             unitPrice: obj.UnitPrice != null ? String(obj.UnitPrice) : "0",
                             discount: obj.Discount != null ? String(obj.Discount) : "0"
                         };
@@ -90,6 +89,7 @@ sap.ui.define([
                             new Input({ value: "{edit>barcode}" }),
                             new Text({ text: "{edit>description}" }),
                             new Input({ value: "{edit>materialNumber}" }),
+                            new Input({ value: "{edit>quantity}", type: "Number" }),
                             new Input({ value: "{edit>unitPrice}", type: "Number" }),
                             new Input({ value: "{edit>discount}", type: "Number" })
                         ]
@@ -102,6 +102,7 @@ sap.ui.define([
                             new Column({ header: new Text({ text: "Barcode" }) }),
                             new Column({ header: new Text({ text: "Description" }) }),
                             new Column({ header: new Text({ text: "Material" }) }),
+                            new Column({ header: new Text({ text: "Qty" }) }),
                             new Column({ header: new Text({ text: "Unit Price" }) }),
                             new Column({ header: new Text({ text: "Discount" }) })
                         ]
@@ -124,7 +125,6 @@ sap.ui.define([
                                 var editData = oEditModel.getData();
                                 var sServiceUrl = oModel.getServiceUrl();
 
-                                // First fetch CSRF token, then POST
                                 fetch(sServiceUrl, {
                                     method: "HEAD",
                                     headers: { "X-Csrf-Token": "Fetch" }
@@ -153,6 +153,7 @@ sap.ui.define([
                                                         itemNumber: item.itemNumber,
                                                         barcode: item.barcode,
                                                         materialNumber: item.materialNumber,
+                                                        quantity: item.quantity,
                                                         unitPrice: item.unitPrice,
                                                         discount: item.discount
                                                     };
@@ -168,8 +169,7 @@ sap.ui.define([
                                     if (result.success) {
                                         MessageToast.show("Operation Successful");
                                         oDialog.close();
-                                        // Reload page to show updated values
-                                        setTimeout(function() {
+                                        setTimeout(function () {
                                             window.location.reload();
                                         }, 300);
                                     } else {
