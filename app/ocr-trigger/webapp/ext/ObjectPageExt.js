@@ -34,6 +34,7 @@ sap.ui.define([
                     return {
                         itemNumber: obj.ItemNumber || "",
                         description: obj.Description || "",
+                        quantity: obj.Quantity != null ? String(obj.Quantity) : "0",
                         unitPrice: obj.UnitPrice != null ? String(obj.UnitPrice) : "0",
                         discount: obj.Discount != null ? String(obj.Discount) : "0"
                     };
@@ -73,6 +74,7 @@ sap.ui.define([
                     cells: [
                         new Text({ text: "{edit>itemNumber}" }),
                         new Text({ text: "{edit>description}" }),
+                        new Input({ value: "{edit>quantity}", type: "Number" }),
                         new Input({ value: "{edit>unitPrice}", type: "Number" }),
                         new Input({ value: "{edit>discount}", type: "Number" })
                     ]
@@ -83,6 +85,7 @@ sap.ui.define([
                     columns: [
                         new Column({ header: new Text({ text: "Item No" }) }),
                         new Column({ header: new Text({ text: "Description" }) }),
+                        new Column({ header: new Text({ text: "Qty" }) }),
                         new Column({ header: new Text({ text: "Unit Price" }) }),
                         new Column({ header: new Text({ text: "Discount" }) })
                     ]
@@ -131,6 +134,7 @@ sap.ui.define([
                                             editData.items.map(function (item) {
                                                 return {
                                                     itemNumber: item.itemNumber,
+                                                    quantity: item.quantity,
                                                     unitPrice: item.unitPrice,
                                                     discount: item.discount
                                                 };
