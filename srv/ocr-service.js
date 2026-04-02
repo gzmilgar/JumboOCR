@@ -1472,6 +1472,7 @@ async function s4Patch(entityWithKey, body) {
 
         var hdr = data.headerFields;
         var purchaseOrder = getField(hdr, 'purchaseOrder');
+        var currencyCode = getField(hdr, 'currencyCode');
         var poDate = getField(hdr, 'documentDate');
         var deliveryAddress = getField(hdr, 'deliveryAdress');
         var vendorAddress = getField(hdr, 'vendorAdress');
@@ -1509,11 +1510,16 @@ async function s4Patch(entityWithKey, body) {
 
         var shipToResult = findShipTo(receiverId, hdr, shipToList);
         console.log('buildPayload: ShipToId=' + shipToResult.shipToId +
-                   ' SoldToParty=' + shipToResult.soldToParty + ' Company=' + shipToResult.company);
+                   ' SoldToParty=' + shipToResult.soldToParty + ' Company=' + shipToResult.company +
+                   ' SapCompanyCode=' + shipToResult.sapCompanyCode);
 
         var soldToParty = shipToResult.soldToParty;
         var companyCode = '';
-        if (soldToParty) {
+        // Use SapCompanyCode from ship-to table if available
+        if (shipToResult.sapCompanyCode) {
+            companyCode = shipToResult.sapCompanyCode;
+            console.log('buildPayload: Using SapCompanyCode from ship-to table: ' + companyCode);
+        } else if (soldToParty) {
             companyCode = await getSoldToCompanyCode(soldToParty, allowedBukrs);
             console.log('buildPayload: SoldToParty=' + soldToParty + ' → CompanyCode=' + companyCode);
         }
@@ -1707,10 +1713,14 @@ async function s4Patch(entityWithKey, body) {
                 ProductionPlant: salesAreaMatch.plant
             };
             if (unitPrice) {
-                itemObj.to_PricingElement = [{
+                var pricingElement = {
                     ConditionType: overrides.conditionType || 'ZMAN',
                     ConditionRateValue: String(unitPrice)
-                }];
+                };
+                if (currencyCode) {
+                    pricingElement.ConditionCurrency = currencyCode;
+                }
+                itemObj.to_PricingElement = [pricingElement];
             }
             itemsArray.push(itemObj);
         }
@@ -1867,7 +1877,7 @@ async function s4Patch(entityWithKey, body) {
     // FIND SHIP TO
     // ============================================================
     function findShipTo(receiverId, headerFields, shipToList) {
-        var emptyResult = { shipToId: '', soldToParty: '', company: '' };
+        var emptyResult = { shipToId: '', soldToParty: '', company: '', sapCompanyCode: '' };
         if (!shipToList || shipToList.length === 0) {
             console.log('findShipTo: empty shipToList');
             return emptyResult;
@@ -1881,9 +1891,11 @@ async function s4Patch(entityWithKey, body) {
                 var stId = String(row.ShipToId || '');
                 if (stId && stId.indexOf(receiverId) >= 0) {
                     var result = { shipToId: stId, soldToParty: String(row.SoldToParty || '').trim(),
-                                   company: String(row.Company || '').trim() };
+                                   company: String(row.Company || '').trim(),
+                                   sapCompanyCode: String(row.SapCompanyCode || '').trim() };
                     console.log('findShipTo: receiverId match → ShipToId=' + result.shipToId +
-                               ' SoldToParty=' + result.soldToParty + ' Company=' + result.company);
+                               ' SoldToParty=' + result.soldToParty + ' Company=' + result.company +
+                               ' SapCompanyCode=' + result.sapCompanyCode);
                     return result;
                 }
             }
@@ -1904,9 +1916,11 @@ async function s4Patch(entityWithKey, body) {
                 if (searchTexts[t].indexOf(addr) >= 0 || addr.indexOf(searchTexts[t]) >= 0) {
                     var result2 = { shipToId: String(row2.ShipToId || ''),
                                     soldToParty: String(row2.SoldToParty || '').trim(),
-                                    company: String(row2.Company || '').trim() };
+                                    company: String(row2.Company || '').trim(),
+                                    sapCompanyCode: String(row2.SapCompanyCode || '').trim() };
                     console.log('findShipTo: address match → ShipToId=' + result2.shipToId +
-                               ' SoldToParty=' + result2.soldToParty + ' (addr: ' + addr + ')');
+                               ' SoldToParty=' + result2.soldToParty +
+                               ' SapCompanyCode=' + result2.sapCompanyCode + ' (addr: ' + addr + ')');
                     return result2;
                 }
             }
@@ -1927,7 +1941,8 @@ async function s4Patch(entityWithKey, body) {
                 if (score > best.score && score >= 0.5) {
                     best = { result: { shipToId: String(row3.ShipToId || ''),
                                        soldToParty: String(row3.SoldToParty || '').trim(),
-                                       company: String(row3.Company || '').trim() }, score: score };
+                                       company: String(row3.Company || '').trim(),
+                                       sapCompanyCode: String(row3.SapCompanyCode || '').trim() }, score: score };
                 }
             }
         }
@@ -1935,6 +1950,7 @@ async function s4Patch(entityWithKey, body) {
         if (best.result.shipToId) {
             console.log('findShipTo: fuzzy match → ShipToId=' + best.result.shipToId +
                        ' SoldToParty=' + best.result.soldToParty +
+                       ' SapCompanyCode=' + best.result.sapCompanyCode +
                        ' (score: ' + best.score.toFixed(2) + ')');
             return best.result;
         }
@@ -1953,7 +1969,8 @@ async function s4Patch(entityWithKey, body) {
             'Emax':      { conditionType: 'ZMAN', soType: null },
             'Retail':    { conditionType: 'ZMAN', soType: null },
             'Dyson':     { conditionType: 'ZMAN', soType: '1SSR' },
-            'VStart':    { conditionType: 'ZMAN', soType: null }
+            'VStart':    { conditionType: 'ZMAN', soType: null },
+            'Amazon':    { conditionType: 'ZMAN', soType: null }
         };
         return map[processName] || { conditionType: 'ZMAN', soType: null };
     }
