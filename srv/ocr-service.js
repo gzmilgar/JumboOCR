@@ -750,16 +750,14 @@ this.on('updatePOLogData', async (req) => {
         console.log('[' + processName + '] Allowed BUKRS from salesAreaMap: [' + allowedBukrs.join(', ') + ']');
 
         var extracted = extractEansAndTaxId(data);
-        var eans = extracted.eans;
-        var descBarcodes = extracted.descBarcodes;
+        var barcodes = extracted.barcodes;
         var taxId = extracted.taxId;
-        console.log('[' + processName + '] EANs:' + eans.length + ' DescBarcodes:' + descBarcodes.length + ' TaxId:' + taxId);
+        console.log('[' + processName + '] Barcodes:' + barcodes.length + ' TaxId:' + taxId);
 
-        var eanProductMap = await lookupProducts(eans, descBarcodes);
-        console.log('[' + processName + '] Products:' + Object.keys(eanProductMap).length + '/' + (eans.length + descBarcodes.length));
+        var eanProductMap = await lookupProducts(barcodes);
+        console.log('[' + processName + '] Products:' + Object.keys(eanProductMap).length + '/' + barcodes.length);
 
-        var allBarcodes = eans.concat(descBarcodes);
-        var barcodeReport = checkBarcodes(allBarcodes, eanProductMap);
+        var barcodeReport = checkBarcodes(barcodes, eanProductMap);
         if (barcodeReport.missing.length > 0) {
             console.log('[' + processName + '] Missing barcodes: ' + barcodeReport.missing.join(', '));
         }
@@ -1173,11 +1171,10 @@ async function s4Patch(entityWithKey, body) {
     // EXTRACT EANS & TAX ID
     // ============================================================
     function extractEansAndTaxId(data) {
-        var eans = [];
-        var descBarcodes = [];
+        var barcodes = [];
         var seen = {};
 
-        taxId = getField(data.headerFields, 'taxId')
+        var taxId = getField(data.headerFields, 'taxId')
             || getField(data.headerFields, 'vatNumber')
             || getField(data.headerFields, 'taxNumber')
             || '';
@@ -1191,14 +1188,10 @@ async function s4Patch(entityWithKey, body) {
             if (!barcode) continue;
             if (!seen[barcode]) {
                 seen[barcode] = true;
-                if (/^\d+$/.test(barcode)) {
-                    eans.push(barcode);
-                } else {
-                    descBarcodes.push(barcode);
-                }
+                barcodes.push(barcode);
             }
         }
-        return { eans: eans, descBarcodes: descBarcodes, taxId: taxId };
+        return { barcodes: barcodes, taxId: taxId };
     }
 
     // ============================================================
@@ -1225,57 +1218,53 @@ async function s4Patch(entityWithKey, body) {
     // ============================================================
     // LOOKUP PRODUCTS
     // ============================================================
-    async function lookupProducts(eans, descBarcodes) {
+    async function lookupProducts(barcodes) {
+        if (!barcodes || barcodes.length === 0) return {};
         var productMap = {};
         var BATCH = 50;
 
-        // Step 1: Lookup by EAN (ProductStandardID)
-        if (eans && eans.length > 0) {
-            for (var i = 0; i < eans.length; i += BATCH) {
-                var batch = eans.slice(i, i + BATCH);
-                var filterParts = batch.map(function (ean) {
-                    return "ProductStandardID eq '" + String(ean) + "'";
-                });
-                var filterStr = filterParts.join(' or ');
-                var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
-                    + "?$filter=" + encodeURIComponent(filterStr)
-                    + "&$select=Product,ProductStandardID,ProductGroup,Brand"
-                    + "&$format=json";
-                try {
-                    var response = await executeHttpRequest(
-                        { destinationName: 'QS4_HTTPS' },
-                        { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
-                    );
-                    var results = response.data?.d?.results || [];
-                    for (var r = 0; r < results.length; r++) {
-                        var row = results[r];
-                        var ean = String(row.ProductStandardID || '').replace(/^0+/, '');
-                        if (ean) {
-                            productMap[ean] = {
-                                material: row.Product || '',
-                                productGroup: row.ProductGroup || '',
-                                brand: row.Brand || ''
-                            };
-                        }
+        // Step 1: Try all barcodes as EAN (ProductStandardID)
+        for (var i = 0; i < barcodes.length; i += BATCH) {
+            var batch = barcodes.slice(i, i + BATCH);
+            var filterParts = batch.map(function (bc) {
+                return "ProductStandardID eq '" + String(bc) + "'";
+            });
+            var filterStr = filterParts.join(' or ');
+            var url = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product"
+                + "?$filter=" + encodeURIComponent(filterStr)
+                + "&$select=Product,ProductStandardID,ProductGroup,Brand"
+                + "&$format=json";
+            try {
+                var response = await executeHttpRequest(
+                    { destinationName: 'QS4_HTTPS' },
+                    { method: 'GET', url: url, headers: { 'Accept': 'application/json' }, timeout: 30000 }
+                );
+                var results = response.data?.d?.results || [];
+                for (var r = 0; r < results.length; r++) {
+                    var row = results[r];
+                    var ean = String(row.ProductStandardID || '').replace(/^0+/, '');
+                    if (ean) {
+                        productMap[ean] = {
+                            material: row.Product || '',
+                            productGroup: row.ProductGroup || '',
+                            brand: row.Brand || ''
+                        };
                     }
-                } catch (e) {
-                    console.error('Product lookup EAN batch error: ' + e.message);
                 }
+            } catch (e) {
+                console.error('Product lookup EAN batch error: ' + e.message);
             }
         }
 
-        // Step 2: For EANs not found, try Description (MAKTX) lookup
-        var missingEans = (eans || []).filter(function (ean) { return !productMap[ean]; });
-        var allDescLookups = missingEans.concat(descBarcodes || []);
-
-        if (allDescLookups.length > 0) {
-            console.log('lookupProducts: Trying description lookup for: ' + allDescLookups.join(', '));
-            for (var d = 0; d < allDescLookups.length; d++) {
-                var desc = allDescLookups[d];
-                if (productMap[desc]) continue;
+        // Step 2: For barcodes not found by EAN, try Description (MAKTX) lookup
+        var missing = barcodes.filter(function (bc) { return !productMap[bc]; });
+        if (missing.length > 0) {
+            console.log('lookupProducts: EAN not found, trying description for: ' + missing.join(', '));
+            for (var d = 0; d < missing.length; d++) {
+                var bc = missing[d];
                 try {
                     var descUrl = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_ProductDescription"
-                        + "?$filter=" + encodeURIComponent("substringof('" + desc + "',ProductDescription)")
+                        + "?$filter=" + encodeURIComponent("substringof('" + bc + "',ProductDescription)")
                         + "&$select=Product,ProductDescription,Language"
                         + "&$top=1"
                         + "&$format=json";
@@ -1286,8 +1275,7 @@ async function s4Patch(entityWithKey, body) {
                     var descResults = descResp.data?.d?.results || [];
                     if (descResults.length > 0) {
                         var foundProduct = descResults[0].Product || '';
-                        console.log('lookupProducts: Description match "' + desc + '" → Material=' + foundProduct);
-                        // Now get full product details
+                        console.log('lookupProducts: Description match "' + bc + '" → Material=' + foundProduct);
                         var prodUrl = "/sap/opu/odata/sap/API_PRODUCT_SRV/A_Product('" + encodeURIComponent(foundProduct) + "')"
                             + "?$select=Product,ProductStandardID,ProductGroup,Brand"
                             + "&$format=json";
@@ -1296,16 +1284,16 @@ async function s4Patch(entityWithKey, body) {
                             { method: 'GET', url: prodUrl, headers: { 'Accept': 'application/json' }, timeout: 30000 }
                         );
                         var prodData = prodResp.data?.d || {};
-                        productMap[desc] = {
+                        productMap[bc] = {
                             material: prodData.Product || foundProduct,
                             productGroup: prodData.ProductGroup || '',
                             brand: prodData.Brand || ''
                         };
                     } else {
-                        console.log('lookupProducts: No description match for "' + desc + '"');
+                        console.log('lookupProducts: No description match for "' + bc + '"');
                     }
                 } catch (e) {
-                    console.error('Product description lookup error for "' + desc + '": ' + e.message);
+                    console.error('Product description lookup error for "' + bc + '": ' + e.message);
                 }
             }
         }
