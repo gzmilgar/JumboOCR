@@ -2127,7 +2127,7 @@ async function s4Patch(entityWithKey, body) {
         var env = process.env;
         if (env.DOX_API_URL && env.DOX_CLIENT_ID && env.DOX_CLIENT_SECRET) {
             return {
-                apiUrl: env.DOX_API_URL,        // e.g. https://aiservices-dox-xxx.cfapps.eu10.hana.ondemand.com
+                apiUrl: env.DOX_API_URL,        // e.g. https://aiservices-dox-xxx.cfapps.eu10.hana.ondemand.com/document-information-extraction/v1
                 authUrl: env.DOX_AUTH_URL,       // e.g. https://xxx.authentication.eu10.hana.ondemand.com
                 clientId: env.DOX_CLIENT_ID,
                 clientSecret: env.DOX_CLIENT_SECRET
@@ -2136,11 +2136,13 @@ async function s4Patch(entityWithKey, body) {
 
         // Option 2: VCAP_SERVICES binding
         var vcap = env.VCAP_SERVICES ? JSON.parse(env.VCAP_SERVICES) : {};
-        var doxServices = vcap['document-information-extraction'] || [];
+        var doxServices = vcap['document-information-extraction'] || vcap['sap-document-information-extraction'] || [];
         if (doxServices.length > 0) {
             var cred = doxServices[0].credentials;
+            var baseUrl = cred.url || '';
+            var restPath = cred.resturl || '/document-information-extraction/v1/';
             return {
-                apiUrl: cred.url,
+                apiUrl: baseUrl + restPath.replace(/\/$/, ''),
                 authUrl: cred.uaa.url,
                 clientId: cred.uaa.clientid,
                 clientSecret: cred.uaa.clientsecret
