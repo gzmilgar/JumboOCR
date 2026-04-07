@@ -2324,74 +2324,49 @@ async function s4Patch(entityWithKey, body) {
         var token = await getDoxToken(config);
         console.log('DOX: OAuth token acquired');
 
-        // List available clients, schemas, and templates for debugging
+        // Resolve template: find UUID by name from DOX API
+        var resolvedTemplateId = null;
         try {
-            // List clients
-            var clientUrl = config.apiUrl + '/clients';
-            var clientResp = await fetch(clientUrl, {
-                method: 'GET',
-                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
-            });
-            if (clientResp.ok) {
-                var clients = await clientResp.json();
-                console.log('DOX: Available clients: ' + JSON.stringify(clients).substring(0, 500));
-            }
-
-            // List schemas
-            var schemasUrl = config.apiUrl + '/schemas';
-            var schemasResp = await fetch(schemasUrl, {
-                method: 'GET',
-                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
-            });
-            if (schemasResp.ok) {
-                var schemas = await schemasResp.json();
-                console.log('DOX: Available schemas: ' + JSON.stringify(schemas).substring(0, 1000));
-            }
-
-            // List templates for default client
-            var tplUrl = config.apiUrl + '/clients/default/schemas/' + (templateConfig.schemaName || templateConfig.schemaId) + '/versions/1/templates';
+            var tplUrl = config.apiUrl + '/templates?clientId=default&schemaName=' + encodeURIComponent(templateConfig.schemaName || '');
             var tplResp = await fetch(tplUrl, {
                 method: 'GET',
                 headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
             });
             if (tplResp.ok) {
-                var tpls = await tplResp.json();
-                console.log('DOX: Templates (via client/schema): ' + JSON.stringify(tpls).substring(0, 1000));
-            } else {
-                console.log('DOX: Templates listing returned ' + tplResp.status);
-                // Try alternative endpoint
-                var tplUrl2 = config.apiUrl + '/templates?clientId=default&schemaName=' + encodeURIComponent(templateConfig.schemaName || '');
-                var tplResp2 = await fetch(tplUrl2, {
-                    method: 'GET',
-                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
-                });
-                if (tplResp2.ok) {
-                    var tpls2 = await tplResp2.json();
-                    console.log('DOX: Templates (alt): ' + JSON.stringify(tpls2).substring(0, 1000));
-                } else {
-                    console.log('DOX: Templates alt listing returned ' + tplResp2.status);
+                var tplData = await tplResp.json();
+                var tplList = tplData.results || tplData || [];
+                console.log('DOX: Found ' + tplList.length + ' templates:');
+                for (var t = 0; t < tplList.length; t++) {
+                    console.log('  [' + t + '] id=' + tplList[t].id + ' name=' + tplList[t].name + ' status=' + tplList[t].status);
+                    // Match by template name
+                    if (templateConfig.templateId && tplList[t].name === templateConfig.templateId) {
+                        resolvedTemplateId = tplList[t].id;
+                        console.log('DOX: Resolved template "' + templateConfig.templateId + '" → UUID=' + resolvedTemplateId);
+                    }
                 }
             }
-        } catch (listErr) {
-            console.log('DOX: Could not list templates: ' + listErr.message);
+        } catch (tplErr) {
+            console.log('DOX: Could not list templates: ' + tplErr.message);
         }
 
-        // Upload and start extraction — try with template first, fallback without
+        // Use resolved UUID if found, otherwise keep original
+        var uploadConfig = {
+            schemaName: templateConfig.schemaName,
+            schemaId: templateConfig.schemaId,
+            documentType: templateConfig.documentType,
+            templateId: resolvedTemplateId || undefined
+        };
+
+        // Upload and start extraction
         var job;
         try {
-            job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, templateConfig);
+            job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, uploadConfig);
         } catch (uploadErr) {
             if (uploadErr.message && uploadErr.message.indexOf('E31') !== -1) {
-                // Template not found — retry without templateId (auto-detection with schemaName)
+                // Template not found — retry without templateId
                 console.log('DOX: Template not found (E31), retrying without templateId...');
-                var fallbackConfig = {
-                    schemaName: templateConfig.schemaName,
-                    schemaId: templateConfig.schemaId,
-                    documentType: templateConfig.documentType
-                };
-                // Remove templateId for fallback
-                delete fallbackConfig.templateId;
-                job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, fallbackConfig);
+                delete uploadConfig.templateId;
+                job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, uploadConfig);
             } else {
                 throw uploadErr;
             }
