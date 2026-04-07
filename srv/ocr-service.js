@@ -2286,18 +2286,47 @@ async function s4Patch(entityWithKey, body) {
             }
         }
 
-        // Map line items
-        var lineGroups = extraction.lineItemFields || [];
+        // Map line items — DOX API uses "lineItems" not "lineItemFields"
+        var lineGroups = extraction.lineItems || extraction.lineItemFields || [];
+        console.log('mapDoxResponse: lineGroups length=' + lineGroups.length);
         for (var g = 0; g < lineGroups.length; g++) {
             var group = lineGroups[g];
             var lineObj = {};
-            for (var f = 0; f < group.length; f++) {
-                var lf = group[f];
-                if (lf.name && lf.value !== undefined && lf.value !== null) {
-                    lineObj[lf.name] = [{ value: String(lf.value), confidence: lf.confidence || 0 }];
+            // DOX can return array of field objects OR an object with fields
+            if (Array.isArray(group)) {
+                // Array format: [{name, value}, {name, value}, ...]
+                for (var f = 0; f < group.length; f++) {
+                    var lf = group[f];
+                    if (lf.name && lf.value !== undefined && lf.value !== null) {
+                        lineObj[lf.name] = [{ value: String(lf.value), confidence: lf.confidence || 0 }];
+                    }
+                }
+            } else if (group && typeof group === 'object') {
+                // Object format: {fieldName: value, ...} or {columns: [...]}
+                var columns = group.columns || group.cells || group.fields || null;
+                if (Array.isArray(columns)) {
+                    for (var c = 0; c < columns.length; c++) {
+                        var col = columns[c];
+                        if (col.name && col.value !== undefined && col.value !== null) {
+                            lineObj[col.name] = [{ value: String(col.value), confidence: col.confidence || 0 }];
+                        }
+                    }
+                } else {
+                    // Direct key-value object
+                    var keys = Object.keys(group);
+                    for (var k = 0; k < keys.length; k++) {
+                        var key = keys[k];
+                        var val = group[key];
+                        if (val !== undefined && val !== null && key !== 'rowNumber' && key !== 'pageNumber') {
+                            lineObj[key] = [{ value: String(typeof val === 'object' ? (val.value || val) : val) }];
+                        }
+                    }
                 }
             }
-            mapped.lineItemFields.push(lineObj);
+            if (Object.keys(lineObj).length > 0) {
+                console.log('mapDoxResponse: line[' + g + '] fields=' + Object.keys(lineObj).join(','));
+                mapped.lineItemFields.push(lineObj);
+            }
         }
 
         return mapped;
