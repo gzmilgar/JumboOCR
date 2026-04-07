@@ -2110,7 +2110,7 @@ async function s4Patch(entityWithKey, body) {
     // templateId: Template UUID specific to each company's PDF format
     // Update these values from Document AI UI → Schema → Template details
     var DOX_TEMPLATE_MAP = {
-        'VStart':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '2fd68b80-0995-4c5b-b63a-a635e2701105', documentType: 'purchaseOrder' },
+        'VStart':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'VstarTemplate', documentType: 'purchaseOrder' },
         'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
         'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
         'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
@@ -2176,9 +2176,9 @@ async function s4Patch(entityWithKey, body) {
     async function doxUploadAndExtract(config, token, pdfBuffer, fileName, templateConfig) {
         // Build multipart form data manually (Node.js compatible)
         var boundary = '----DoxBoundary' + Date.now();
-        var options = JSON.stringify({
-            schemaId: templateConfig.schemaId || undefined,
-            templateId: templateConfig.templateId || undefined,
+
+        // Build options - DOX API uses schemaName for custom schemas
+        var optionsObj = {
             clientId: 'default',
             documentType: templateConfig.documentType || 'purchaseOrder',
             receivedDate: new Date().toISOString().split('T')[0],
@@ -2186,7 +2186,22 @@ async function s4Patch(entityWithKey, body) {
                 sender: { top: 5, type: 'businessEntity', subtype: 'supplier' },
                 employee: { type: 'employee' }
             }
-        });
+        };
+
+        // Schema: try schemaName first (custom schemas), fallback to schemaId
+        if (templateConfig.schemaName) {
+            optionsObj.schemaName = templateConfig.schemaName;
+        } else if (templateConfig.schemaId) {
+            optionsObj.schemaId = templateConfig.schemaId;
+        }
+
+        // Template: use name (not UUID)
+        if (templateConfig.templateId) {
+            optionsObj.templateId = templateConfig.templateId;
+        }
+
+        console.log('DOX: upload options=' + JSON.stringify(optionsObj));
+        var options = JSON.stringify(optionsObj);
 
         // Remove undefined fields from options
         var optObj = JSON.parse(options);
@@ -2341,13 +2356,16 @@ async function s4Patch(entityWithKey, body) {
         try {
             job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, templateConfig);
         } catch (uploadErr) {
-            if (uploadErr.message && uploadErr.message.indexOf('E31') !== -1 && templateConfig.templateId) {
-                // Template not found — retry without templateId (auto-detection)
+            if (uploadErr.message && uploadErr.message.indexOf('E31') !== -1) {
+                // Template not found — retry without templateId (auto-detection with schemaName)
                 console.log('DOX: Template not found (E31), retrying without templateId...');
                 var fallbackConfig = {
+                    schemaName: templateConfig.schemaName,
                     schemaId: templateConfig.schemaId,
                     documentType: templateConfig.documentType
                 };
+                // Remove templateId for fallback
+                delete fallbackConfig.templateId;
                 job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, fallbackConfig);
             } else {
                 throw uploadErr;
