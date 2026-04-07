@@ -9,6 +9,7 @@ modules:
   requires:
   - name: ocr-connectivity
   - name: ocr-destination
+  - name: ocr-document-ai
  # ocr-uaa KALDIRILDI - zero-trust sidecar'ı devre dışı bırakır
   provides:
   - name: srv-api
@@ -64,6 +65,11 @@ resources:
           existing_destinations_policy: update
     service: destination
     service-plan: lite
+
+- name: ocr-document-ai
+  type: org.cloudfoundry.existing-service
+  parameters:
+    service-name: DocumentAI_Instance
 
 - name: ocr-uaa
   type: org.cloudfoundry.existing-service
