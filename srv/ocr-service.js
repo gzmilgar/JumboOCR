@@ -2375,9 +2375,20 @@ async function s4Patch(entityWithKey, body) {
 
         // Poll for result
         var result = await doxPollJob(config, token, job.id);
-        console.log('DOX: extraction complete, headerFields=' +
-                    (result.extraction?.headerFields?.length || 0) +
-                    ' lineItems=' + (result.extraction?.lineItemFields?.length || 0));
+        // Log raw extraction structure for debugging
+        var ext = result.extraction || {};
+        console.log('DOX: extraction keys=' + Object.keys(ext).join(','));
+        console.log('DOX: headerFields count=' + (ext.headerFields?.length || 0));
+        console.log('DOX: lineItemFields count=' + (ext.lineItemFields?.length || 0));
+        // Check alternative keys for line items
+        var possibleLineKeys = ['lineItemFields', 'lineItems', 'lineItemRows', 'items', 'tableData'];
+        for (var pk = 0; pk < possibleLineKeys.length; pk++) {
+            if (ext[possibleLineKeys[pk]]) {
+                console.log('DOX: found line data under "' + possibleLineKeys[pk] + '" length=' + ext[possibleLineKeys[pk]].length);
+            }
+        }
+        // Log first 2000 chars of extraction to see structure
+        console.log('DOX: raw extraction=' + JSON.stringify(ext).substring(0, 2000));
 
         // Map to internal format
         return mapDoxResponse(result);
