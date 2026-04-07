@@ -1141,13 +1141,14 @@ async function s4Patch(entityWithKey, body) {
         var hdr = data.headerFields || {};
         var lineItems = (data.lineItemFields || []).map(function (line) {
             return {
-                itemNumber:     getField(line, 'itemNumber'),
-                barcode:        getField(line, 'barcode'),
-                description:    getField(line, 'description'),
-                materialNumber: getField(line, 'materialNumber'),
-                quantity:       getField(line, 'quantity'),
-                unitPrice:      getField(line, 'unitPrice'),
-                discount:       getField(line, 'discount')
+                itemNumber:             getField(line, 'itemNumber'),
+                barcode:                getField(line, 'barcode'),
+                customerMaterialNumber: getField(line, 'customerMaterialNumber'),
+                description:            getField(line, 'description'),
+                materialNumber:         getField(line, 'materialNumber'),
+                quantity:               getField(line, 'quantity'),
+                unitPrice:              getField(line, 'unitPrice'),
+                discount:               getField(line, 'discount')
             };
         });
         return {
@@ -1203,13 +1204,14 @@ async function s4Patch(entityWithKey, body) {
             },
             lineItemFields: (minData.lineItems || []).map(function (item) {
                 return {
-                    barcode:        w(item.barcode),
-                    quantity:       w(item.quantity),
-                    description:    w(item.description),
-                    unitPrice:      w(item.unitPrice),
-                    itemNumber:     w(item.itemNumber),
-                    materialNumber: w(item.materialNumber),
-                    discount:       w(item.discount)
+                    barcode:                w(item.barcode),
+                    customerMaterialNumber: w(item.customerMaterialNumber),
+                    quantity:               w(item.quantity),
+                    description:            w(item.description),
+                    unitPrice:              w(item.unitPrice),
+                    itemNumber:             w(item.itemNumber),
+                    materialNumber:         w(item.materialNumber),
+                    discount:               w(item.discount)
                 };
             })
         };
