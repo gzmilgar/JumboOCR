@@ -2216,8 +2216,12 @@ async function s4Patch(entityWithKey, body) {
                 employee: { type: 'employee' }
             }
         };
-        if (templateConfig.schemaId) optionsObj.schemaId = templateConfig.schemaId;
-        if (templateConfig.schemaName) optionsObj.schemaName = templateConfig.schemaName;
+        // DOX requires either schemaId OR schemaName, not both
+        if (templateConfig.schemaName) {
+            optionsObj.schemaName = templateConfig.schemaName;
+        } else if (templateConfig.schemaId) {
+            optionsObj.schemaId = templateConfig.schemaId;
+        }
         if (templateConfig.templateId) optionsObj.templateId = templateConfig.templateId;
 
         console.log('DOX: upload options=' + JSON.stringify(optionsObj));
