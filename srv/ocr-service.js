@@ -2110,7 +2110,7 @@ async function s4Patch(entityWithKey, body) {
     // templateId: Template UUID specific to each company's PDF format
     // Update these values from Document AI UI → Schema → Template details
     var DOX_TEMPLATE_MAP = {
-        'VStart':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'VstarTemplate', documentType: 'purchaseOrder' },
+        'VStar':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'VstarTemplate', documentType: 'purchaseOrder' },
         'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
         'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
         'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
@@ -2127,26 +2127,56 @@ async function s4Patch(entityWithKey, body) {
         var env = process.env;
         if (env.DOX_API_URL && env.DOX_CLIENT_ID && env.DOX_CLIENT_SECRET) {
             return {
-                apiUrl: env.DOX_API_URL,        // e.g. https://aiservices-dox-xxx.cfapps.eu10.hana.ondemand.com
+                apiUrl: env.DOX_API_URL,        // e.g. https://aiservices-dox-xxx.cfapps.eu10.hana.ondemand.com/document-information-extraction/v1
                 authUrl: env.DOX_AUTH_URL,       // e.g. https://xxx.authentication.eu10.hana.ondemand.com
                 clientId: env.DOX_CLIENT_ID,
                 clientSecret: env.DOX_CLIENT_SECRET
             };
         }
 
-        // Option 2: VCAP_SERVICES binding
+        // Option 2: VCAP_SERVICES binding — try multiple possible service keys
         var vcap = env.VCAP_SERVICES ? JSON.parse(env.VCAP_SERVICES) : {};
-        var doxServices = vcap['document-information-extraction'] || [];
+        var possibleKeys = ['document-information-extraction', 'sap-document-information-extraction', 'DocumentAI_Instance'];
+        var doxServices = [];
+        for (var i = 0; i < possibleKeys.length; i++) {
+            if (vcap[possibleKeys[i]] && vcap[possibleKeys[i]].length > 0) {
+                doxServices = vcap[possibleKeys[i]];
+                console.log('DOX: Found service binding under key "' + possibleKeys[i] + '"');
+                break;
+            }
+        }
+        // Also search all VCAP entries for any service with 'document' in the name
+        if (doxServices.length === 0) {
+            var vcapKeys = Object.keys(vcap);
+            for (var k = 0; k < vcapKeys.length; k++) {
+                if (vcapKeys[k].toLowerCase().indexOf('document') !== -1 || vcapKeys[k].toLowerCase().indexOf('dox') !== -1) {
+                    doxServices = vcap[vcapKeys[k]];
+                    console.log('DOX: Found service binding under key "' + vcapKeys[k] + '"');
+                    break;
+                }
+            }
+        }
         if (doxServices.length > 0) {
             var cred = doxServices[0].credentials;
+            // apiUrl = base url + swagger path (resturl or /document-information-extraction/v1)
+            var apiUrl = cred.url;
+            if (cred.swagger && cred.swagger.url) {
+                // swagger.url is like /document-information-extraction/v1
+                apiUrl = cred.url + cred.swagger.url;
+            } else if (cred.resturl) {
+                apiUrl = cred.url + cred.resturl;
+            }
+            console.log('DOX: VCAP config — apiUrl=' + apiUrl + ' authUrl=' + (cred.uaa ? cred.uaa.url : 'N/A'));
             return {
-                apiUrl: cred.url,
-                authUrl: cred.uaa.url,
-                clientId: cred.uaa.clientid,
-                clientSecret: cred.uaa.clientsecret
+                apiUrl: apiUrl,
+                authUrl: cred.uaa ? cred.uaa.url : cred.authUrl,
+                clientId: cred.uaa ? cred.uaa.clientid : cred.clientId,
+                clientSecret: cred.uaa ? cred.uaa.clientsecret : cred.clientSecret
             };
         }
 
+        // Debug: log available VCAP keys
+        console.log('DOX: No service binding found. VCAP_SERVICES keys=' + Object.keys(vcap).join(','));
         return null;
     }
 
