@@ -2130,17 +2130,27 @@ async function s4Patch(entityWithKey, body) {
         'VStar':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'VstarTemplate', documentType: 'purchaseOrder' },
         'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'AmazonTemplate', documentType: 'purchaseOrder' },
         'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'CarrefourTemplate', documentType: 'purchaseOrder' },
-        'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
         'Emax':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'EmaxTemplate', documentType: 'purchaseOrder' },
         'EmaxHtml':  { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'EmaxTemplate', documentType: 'purchaseOrder' },
         'Retail':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'RetailTemplate', documentType: 'purchaseOrder' },
-        'Dyson':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Dyson':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'DysonTemplate', documentType: 'purchaseOrder' },
         'Metro':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
-        'Lulu':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'LuluTemplate', documentType: 'purchaseOrder' },
+        'Lulu':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'LULUTemplate', documentType: 'purchaseOrder' },
         'Sharaf':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'SharafTemplate', documentType: 'purchaseOrder' },
-        'SharafDG':  { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'SharafDGTemplate', documentType: 'purchaseOrder' }
+        'SharafDG':  { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'SharafDGTemplate', documentType: 'purchaseOrder' },
+        'Noon':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'NoonTemplate', documentType: 'purchaseOrder' },
+        'Jackys':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'JackysTemplate', documentType: 'purchaseOrder' },
+        'Geekay':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'GeekayTemplate', documentType: 'purchaseOrder' },
+        'GEANT':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'GEANTTemplate', documentType: 'purchaseOrder' },
+        'Extra':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'ExtraTemplate', documentType: 'purchaseOrder' },
+        'Eros':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'ErosTemplate', documentType: 'purchaseOrder' },
+        'Ecity':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'EcityTemplate', documentType: 'purchaseOrder' },
+        'DDF':       { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'DDFTemplate', documentType: 'purchaseOrder' },
+        'Bestvalue': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'BestvalueTemplate', documentType: 'purchaseOrder' },
+        'Almaya':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'AlmayaTemplate', documentType: 'purchaseOrder' },
+        'ACE':       { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'ACETemplate', documentType: 'purchaseOrder' },
+        'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' }
         // templateId = Document AI'daki template adı. Boş bırakılırsa template olmadan extraction yapılır.
-        // Yeni şirket eklemek için: Document AI'da template oluşturun, adını buraya yazın.
     };
 
     // Get DOX credentials from environment or destination
