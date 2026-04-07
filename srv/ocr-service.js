@@ -534,7 +534,8 @@ this.on('UPDATE', 'OCRItems', async (req) => {
         var processName = req.data.processName || 'Unknown';
         var logUuid = null;
         try {
-            console.log('=== extractAndProcess called [' + processName + '] ===');
+            var templateName = req.data.templateName || '';
+            console.log('=== extractAndProcess called [' + processName + '] templateName=' + templateName + ' ===');
 
             var pdfBase64 = req.data.pdfBase64;
             var pdfName = req.data.pdfName || 'document.pdf';
@@ -546,7 +547,7 @@ this.on('UPDATE', 'OCRItems', async (req) => {
 
             // 1. Extract document using DOX API
             console.log('[' + processName + '] Calling DOX API for extraction...');
-            var extractedData = await extractDocumentWithDox(pdfBase64, processName, pdfName);
+            var extractedData = await extractDocumentWithDox(pdfBase64, processName, pdfName, templateName);
             console.log('[' + processName + '] DOX extraction complete');
 
             // 2. Save log to S/4HANA (same as processAndCreateSalesOrder)
@@ -2444,16 +2445,27 @@ async function s4Patch(entityWithKey, body) {
     }
 
     // Full DOX extraction pipeline
-    async function extractDocumentWithDox(pdfBase64, processName, fileName) {
+    async function extractDocumentWithDox(pdfBase64, processName, fileName, templateName) {
         var config = getDoxConfig();
         if (!config) {
             throw new Error('DOX API not configured. Set DOX_API_URL, DOX_AUTH_URL, DOX_CLIENT_ID, DOX_CLIENT_SECRET environment variables or bind document-information-extraction service.');
         }
 
-        // Get template config for this company
+        // Get template config: templateName parameter takes priority over DOX_TEMPLATE_MAP
         var templateConfig = DOX_TEMPLATE_MAP[processName] || { documentType: 'purchaseOrder' };
+        // Default schema for all templates
+        var defaultSchema = 'Jumbo_OCR_purchaseOrder_schema_with_numbers';
+        if (templateName) {
+            // Dynamic template from BPA parameter — override the map
+            templateConfig = {
+                schemaName: defaultSchema,
+                templateId: templateName,
+                documentType: 'purchaseOrder'
+            };
+            console.log('DOX: using dynamic templateName="' + templateName + '" from BPA parameter');
+        }
         console.log('DOX: extracting for process=' + processName +
-                    ' schemaId=' + (templateConfig.schemaId || 'auto') +
+                    ' schemaName=' + (templateConfig.schemaName || 'auto') +
                     ' templateId=' + (templateConfig.templateId || 'auto'));
 
         // Decode base64 PDF

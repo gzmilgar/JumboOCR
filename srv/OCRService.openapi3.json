@@ -304,6 +304,10 @@
                   "mailSubject": {
                     "type": "string",
                     "nullable": true
+                  },
+                  "templateName": {
+                    "type": "string",
+                    "nullable": true
                   }
                 }
               }

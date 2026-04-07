@@ -73,10 +73,11 @@ service OCRService {
 
 
     action extractAndProcess(
-        pdfBase64   : String,
-        processName : String,
-        pdfName     : String,
-        mailSubject : String
+        pdfBase64    : String,
+        processName  : String,
+        pdfName      : String,
+        mailSubject  : String,
+        templateName : String
     ) returns {
         salesOrderNumber : String;
         message          : String;
