@@ -2324,27 +2324,52 @@ async function s4Patch(entityWithKey, body) {
         var token = await getDoxToken(config);
         console.log('DOX: OAuth token acquired');
 
-        // List available templates for debugging
+        // List available clients, schemas, and templates for debugging
         try {
-            var schemaId = templateConfig.schemaId;
-            if (schemaId) {
-                var listUrl = config.apiUrl + '/schemas/' + schemaId + '/versions/1/templates';
-                var listResp = await fetch(listUrl, {
+            // List clients
+            var clientUrl = config.apiUrl + '/clients';
+            var clientResp = await fetch(clientUrl, {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
+            });
+            if (clientResp.ok) {
+                var clients = await clientResp.json();
+                console.log('DOX: Available clients: ' + JSON.stringify(clients).substring(0, 500));
+            }
+
+            // List schemas
+            var schemasUrl = config.apiUrl + '/schemas';
+            var schemasResp = await fetch(schemasUrl, {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
+            });
+            if (schemasResp.ok) {
+                var schemas = await schemasResp.json();
+                console.log('DOX: Available schemas: ' + JSON.stringify(schemas).substring(0, 1000));
+            }
+
+            // List templates for default client
+            var tplUrl = config.apiUrl + '/clients/default/schemas/' + (templateConfig.schemaName || templateConfig.schemaId) + '/versions/1/templates';
+            var tplResp = await fetch(tplUrl, {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
+            });
+            if (tplResp.ok) {
+                var tpls = await tplResp.json();
+                console.log('DOX: Templates (via client/schema): ' + JSON.stringify(tpls).substring(0, 1000));
+            } else {
+                console.log('DOX: Templates listing returned ' + tplResp.status);
+                // Try alternative endpoint
+                var tplUrl2 = config.apiUrl + '/templates?clientId=default&schemaName=' + encodeURIComponent(templateConfig.schemaName || '');
+                var tplResp2 = await fetch(tplUrl2, {
                     method: 'GET',
                     headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
                 });
-                if (listResp.ok) {
-                    var templates = await listResp.json();
-                    console.log('DOX: Available templates for schema ' + schemaId + ':');
-                    var tplList = templates.results || templates.value || templates || [];
-                    if (Array.isArray(tplList)) {
-                        for (var t = 0; t < tplList.length; t++) {
-                            console.log('  - id=' + (tplList[t].id || tplList[t].templateId) +
-                                       ' name=' + (tplList[t].name || tplList[t].templateName || ''));
-                        }
-                    } else {
-                        console.log('  Templates response: ' + JSON.stringify(templates).substring(0, 500));
-                    }
+                if (tplResp2.ok) {
+                    var tpls2 = await tplResp2.json();
+                    console.log('DOX: Templates (alt): ' + JSON.stringify(tpls2).substring(0, 1000));
+                } else {
+                    console.log('DOX: Templates alt listing returned ' + tplResp2.status);
                 }
             }
         } catch (listErr) {
