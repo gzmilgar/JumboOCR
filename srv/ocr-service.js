@@ -2111,14 +2111,14 @@ async function s4Patch(entityWithKey, body) {
     // Update these values from Document AI UI → Schema → Template details
     var DOX_TEMPLATE_MAP = {
         'VStart':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'VstarTemplate', documentType: 'purchaseOrder' },
-        'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
-        'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
-        'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
-        'Emax':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
-        'Retail':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
-        'Dyson':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
-        'Metro':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' }
-        // Add more companies as needed
+        'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Emax':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Retail':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Dyson':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Metro':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' }
+        // Add more companies as needed — set templateId to the template name in Document AI
     };
 
     // Get DOX credentials from environment or destination
@@ -2127,7 +2127,7 @@ async function s4Patch(entityWithKey, body) {
         var env = process.env;
         if (env.DOX_API_URL && env.DOX_CLIENT_ID && env.DOX_CLIENT_SECRET) {
             return {
-                apiUrl: env.DOX_API_URL,        // e.g. https://aiservices-dox-xxx.cfapps.eu10.hana.ondemand.com/document-information-extraction/v1
+                apiUrl: env.DOX_API_URL,        // e.g. https://aiservices-dox-xxx.cfapps.eu10.hana.ondemand.com
                 authUrl: env.DOX_AUTH_URL,       // e.g. https://xxx.authentication.eu10.hana.ondemand.com
                 clientId: env.DOX_CLIENT_ID,
                 clientSecret: env.DOX_CLIENT_SECRET
@@ -2136,13 +2136,11 @@ async function s4Patch(entityWithKey, body) {
 
         // Option 2: VCAP_SERVICES binding
         var vcap = env.VCAP_SERVICES ? JSON.parse(env.VCAP_SERVICES) : {};
-        var doxServices = vcap['document-information-extraction'] || vcap['sap-document-information-extraction'] || [];
+        var doxServices = vcap['document-information-extraction'] || [];
         if (doxServices.length > 0) {
             var cred = doxServices[0].credentials;
-            var baseUrl = cred.url || '';
-            var restPath = cred.resturl || '/document-information-extraction/v1/';
             return {
-                apiUrl: baseUrl + restPath.replace(/\/$/, ''),
+                apiUrl: cred.url,
                 authUrl: cred.uaa.url,
                 clientId: cred.uaa.clientid,
                 clientSecret: cred.uaa.clientsecret
@@ -2177,7 +2175,6 @@ async function s4Patch(entityWithKey, body) {
         // Build multipart form data manually (Node.js compatible)
         var boundary = '----DoxBoundary' + Date.now();
 
-        // Build options - DOX API uses schemaName for custom schemas
         var optionsObj = {
             clientId: 'default',
             documentType: templateConfig.documentType || 'purchaseOrder',
@@ -2187,18 +2184,9 @@ async function s4Patch(entityWithKey, body) {
                 employee: { type: 'employee' }
             }
         };
-
-        // Schema: try schemaName first (custom schemas), fallback to schemaId
-        if (templateConfig.schemaName) {
-            optionsObj.schemaName = templateConfig.schemaName;
-        } else if (templateConfig.schemaId) {
-            optionsObj.schemaId = templateConfig.schemaId;
-        }
-
-        // Template: use name (not UUID)
-        if (templateConfig.templateId) {
-            optionsObj.templateId = templateConfig.templateId;
-        }
+        if (templateConfig.schemaId) optionsObj.schemaId = templateConfig.schemaId;
+        if (templateConfig.schemaName) optionsObj.schemaName = templateConfig.schemaName;
+        if (templateConfig.templateId) optionsObj.templateId = templateConfig.templateId;
 
         console.log('DOX: upload options=' + JSON.stringify(optionsObj));
         var options = JSON.stringify(optionsObj);
@@ -2271,7 +2259,7 @@ async function s4Patch(entityWithKey, body) {
     }
 
     // Map DOX API response to internal extractedData format
-    // DOX returns: { extraction: { headerFields: [{name, value, confidence}], lineItemFields: [[{name, value}]] } }
+    // DOX returns: { extraction: { headerFields: [{name, value, confidence}], lineItems: [[{name, value, rowNumber}]] } }
     // We need:     { headerFields: { fieldName: [{value}] }, lineItemFields: [{ fieldName: [{value}] }] }
     function mapDoxResponse(doxResult) {
         var extraction = doxResult.extraction || {};
@@ -2286,49 +2274,104 @@ async function s4Patch(entityWithKey, body) {
             }
         }
 
-        // Map line items — DOX API uses "lineItems" not "lineItemFields"
+        // Map line items — DOX API uses "lineItems" (not "lineItemFields")
         var lineGroups = extraction.lineItems || extraction.lineItemFields || [];
         console.log('mapDoxResponse: lineGroups length=' + lineGroups.length);
+
+        // Debug: log raw structure of first group
+        if (lineGroups.length > 0) {
+            console.log('mapDoxResponse: group[0] type=' + typeof lineGroups[0] + ' isArray=' + Array.isArray(lineGroups[0]));
+            console.log('mapDoxResponse: group[0] raw=' + JSON.stringify(lineGroups[0]).substring(0, 1500));
+        }
+
         for (var g = 0; g < lineGroups.length; g++) {
             var group = lineGroups[g];
-            var lineObj = {};
-            // DOX can return array of field objects OR an object with fields
+
             if (Array.isArray(group)) {
-                // Array format: [{name, value}, {name, value}, ...]
-                for (var f = 0; f < group.length; f++) {
-                    var lf = group[f];
-                    if (lf.name && lf.value !== undefined && lf.value !== null) {
-                        lineObj[lf.name] = [{ value: String(lf.value), confidence: lf.confidence || 0 }];
+                // Array format: [{name, value, rowNumber}, ...]
+                // Check if fields have rowNumber — split into multiple rows
+                var hasRowNumber = group.some(function(item) { return item.rowNumber !== undefined; });
+
+                if (hasRowNumber) {
+                    var rowMap = {};
+                    for (var f = 0; f < group.length; f++) {
+                        var lf = group[f];
+                        if (lf.name && lf.value !== undefined && lf.value !== null) {
+                            var rn = lf.rowNumber !== undefined ? lf.rowNumber : 0;
+                            if (!rowMap[rn]) rowMap[rn] = {};
+                            rowMap[rn][lf.name] = [{ value: String(lf.value), confidence: lf.confidence || 0 }];
+                        }
                     }
-                }
-            } else if (group && typeof group === 'object') {
-                // Object format: {fieldName: value, ...} or {columns: [...]}
-                var columns = group.columns || group.cells || group.fields || null;
-                if (Array.isArray(columns)) {
-                    for (var c = 0; c < columns.length; c++) {
-                        var col = columns[c];
-                        if (col.name && col.value !== undefined && col.value !== null) {
-                            lineObj[col.name] = [{ value: String(col.value), confidence: col.confidence || 0 }];
+                    var rowNums = Object.keys(rowMap).sort(function(a, b) { return Number(a) - Number(b); });
+                    console.log('mapDoxResponse: group[' + g + '] split into ' + rowNums.length + ' rows by rowNumber');
+                    for (var r = 0; r < rowNums.length; r++) {
+                        var rowObj = rowMap[rowNums[r]];
+                        if (Object.keys(rowObj).length > 0) {
+                            console.log('mapDoxResponse: row[' + rowNums[r] + '] fields=' + Object.keys(rowObj).join(','));
+                            mapped.lineItemFields.push(rowObj);
                         }
                     }
                 } else {
-                    // Direct key-value object
+                    // No rowNumber — treat as single row
+                    var lineObj = {};
+                    for (var f2 = 0; f2 < group.length; f2++) {
+                        var lf2 = group[f2];
+                        if (lf2.name && lf2.value !== undefined && lf2.value !== null) {
+                            lineObj[lf2.name] = [{ value: String(lf2.value), confidence: lf2.confidence || 0 }];
+                        }
+                    }
+                    if (Object.keys(lineObj).length > 0) {
+                        console.log('mapDoxResponse: line[' + g + '] fields=' + Object.keys(lineObj).join(','));
+                        mapped.lineItemFields.push(lineObj);
+                    }
+                }
+            } else if (group && typeof group === 'object') {
+                // Object format: {columns: [...]} or direct key-value
+                var columns = group.columns || group.cells || group.fields || null;
+                if (Array.isArray(columns)) {
+                    var colHasRowNum = columns.some(function(c) { return c.rowNumber !== undefined; });
+                    if (colHasRowNum) {
+                        var colRowMap = {};
+                        for (var c = 0; c < columns.length; c++) {
+                            var col = columns[c];
+                            if (col.name && col.value !== undefined && col.value !== null) {
+                                var crn = col.rowNumber !== undefined ? col.rowNumber : 0;
+                                if (!colRowMap[crn]) colRowMap[crn] = {};
+                                colRowMap[crn][col.name] = [{ value: String(col.value), confidence: col.confidence || 0 }];
+                            }
+                        }
+                        var colRowNums = Object.keys(colRowMap).sort(function(a, b) { return Number(a) - Number(b); });
+                        console.log('mapDoxResponse: group[' + g + '] columns split into ' + colRowNums.length + ' rows');
+                        for (var cr = 0; cr < colRowNums.length; cr++) {
+                            var crObj = colRowMap[colRowNums[cr]];
+                            if (Object.keys(crObj).length > 0) mapped.lineItemFields.push(crObj);
+                        }
+                    } else {
+                        var lineObj2 = {};
+                        for (var c2 = 0; c2 < columns.length; c2++) {
+                            var col2 = columns[c2];
+                            if (col2.name && col2.value !== undefined && col2.value !== null) {
+                                lineObj2[col2.name] = [{ value: String(col2.value), confidence: col2.confidence || 0 }];
+                            }
+                        }
+                        if (Object.keys(lineObj2).length > 0) mapped.lineItemFields.push(lineObj2);
+                    }
+                } else {
+                    var lineObj3 = {};
                     var keys = Object.keys(group);
                     for (var k = 0; k < keys.length; k++) {
                         var key = keys[k];
                         var val = group[key];
                         if (val !== undefined && val !== null && key !== 'rowNumber' && key !== 'pageNumber') {
-                            lineObj[key] = [{ value: String(typeof val === 'object' ? (val.value || val) : val) }];
+                            lineObj3[key] = [{ value: String(typeof val === 'object' ? (val.value || val) : val) }];
                         }
                     }
+                    if (Object.keys(lineObj3).length > 0) mapped.lineItemFields.push(lineObj3);
                 }
-            }
-            if (Object.keys(lineObj).length > 0) {
-                console.log('mapDoxResponse: line[' + g + '] fields=' + Object.keys(lineObj).join(','));
-                mapped.lineItemFields.push(lineObj);
             }
         }
 
+        console.log('mapDoxResponse: total lineItemFields=' + mapped.lineItemFields.length);
         return mapped;
     }
 
@@ -2367,7 +2410,6 @@ async function s4Patch(entityWithKey, body) {
                 console.log('DOX: Found ' + tplList.length + ' templates:');
                 for (var t = 0; t < tplList.length; t++) {
                     console.log('  [' + t + '] id=' + tplList[t].id + ' name=' + tplList[t].name + ' status=' + tplList[t].status);
-                    // Match by template name
                     if (templateConfig.templateId && tplList[t].name === templateConfig.templateId) {
                         resolvedTemplateId = tplList[t].id;
                         console.log('DOX: Resolved template "' + templateConfig.templateId + '" → UUID=' + resolvedTemplateId);
@@ -2378,7 +2420,7 @@ async function s4Patch(entityWithKey, body) {
             console.log('DOX: Could not list templates: ' + tplErr.message);
         }
 
-        // Use resolved UUID if found, otherwise keep original
+        // Use resolved UUID if found
         var uploadConfig = {
             schemaName: templateConfig.schemaName,
             schemaId: templateConfig.schemaId,
@@ -2392,7 +2434,6 @@ async function s4Patch(entityWithKey, body) {
             job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, uploadConfig);
         } catch (uploadErr) {
             if (uploadErr.message && uploadErr.message.indexOf('E31') !== -1) {
-                // Template not found — retry without templateId
                 console.log('DOX: Template not found (E31), retrying without templateId...');
                 delete uploadConfig.templateId;
                 job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, uploadConfig);
@@ -2404,20 +2445,20 @@ async function s4Patch(entityWithKey, body) {
 
         // Poll for result
         var result = await doxPollJob(config, token, job.id);
+
         // Log raw extraction structure for debugging
         var ext = result.extraction || {};
         console.log('DOX: extraction keys=' + Object.keys(ext).join(','));
         console.log('DOX: headerFields count=' + (ext.headerFields?.length || 0));
-        console.log('DOX: lineItemFields count=' + (ext.lineItemFields?.length || 0));
-        // Check alternative keys for line items
         var possibleLineKeys = ['lineItemFields', 'lineItems', 'lineItemRows', 'items', 'tableData'];
         for (var pk = 0; pk < possibleLineKeys.length; pk++) {
             if (ext[possibleLineKeys[pk]]) {
                 console.log('DOX: found line data under "' + possibleLineKeys[pk] + '" length=' + ext[possibleLineKeys[pk]].length);
             }
         }
-        // Log first 2000 chars of extraction to see structure
-        console.log('DOX: raw extraction=' + JSON.stringify(ext).substring(0, 2000));
+        // Log raw line items structure
+        var rawLineItems = ext.lineItems || ext.lineItemFields || [];
+        console.log('DOX: raw lineItems=' + JSON.stringify(rawLineItems).substring(0, 3000));
 
         // Map to internal format
         return mapDoxResponse(result);
