@@ -2030,7 +2030,7 @@ async function s4Patch(entityWithKey, body) {
             'Emax':      { conditionType: 'ZMAN', soType: null },
             'Retail':    { conditionType: 'ZMAN', soType: null },
             'Dyson':     { conditionType: 'ZMAN', soType: '1SSR' },
-            'VStart':    { conditionType: 'ZMAN', soType: null },
+            'VStar':     { conditionType: 'ZMAN', soType: null },
             'Amazon':    { conditionType: 'ZMAN', soType: null }
         };
         return map[processName] || { conditionType: 'ZMAN', soType: null };
