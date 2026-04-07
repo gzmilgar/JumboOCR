@@ -2158,14 +2158,16 @@ async function s4Patch(entityWithKey, body) {
         }
         if (doxServices.length > 0) {
             var cred = doxServices[0].credentials;
+            console.log('DOX: VCAP credentials keys=' + Object.keys(cred).join(','));
             // apiUrl = base url + swagger path (resturl or /document-information-extraction/v1)
             var apiUrl = cred.url;
             if (cred.swagger && cred.swagger.url) {
-                // swagger.url is like /document-information-extraction/v1
-                apiUrl = cred.url + cred.swagger.url;
+                apiUrl = cred.url.replace(/\/+$/, '') + cred.swagger.url.replace(/\/+$/, '');
             } else if (cred.resturl) {
-                apiUrl = cred.url + cred.resturl;
+                apiUrl = cred.url.replace(/\/+$/, '') + cred.resturl.replace(/\/+$/, '');
             }
+            // Remove trailing slash
+            apiUrl = apiUrl.replace(/\/+$/, '');
             console.log('DOX: VCAP config — apiUrl=' + apiUrl + ' authUrl=' + (cred.uaa ? cred.uaa.url : 'N/A'));
             return {
                 apiUrl: apiUrl,
