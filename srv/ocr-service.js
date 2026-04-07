@@ -2123,36 +2123,8 @@ async function s4Patch(entityWithKey, body) {
     // DOX (Document Information Extraction) API INTEGRATION
     // ============================================================
 
-    // Company → Document AI Template mapping
-    // schemaId: Document AI schema UUID (same for all if using single schema)
-    // templateId: Template UUID specific to each company's PDF format
-    // Update these values from Document AI UI → Schema → Template details
-    var DOX_TEMPLATE_MAP = {
-        'VStar':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'VstarTemplate', documentType: 'purchaseOrder' },
-        'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'AmazonTemplate', documentType: 'purchaseOrder' },
-        'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'CarrefourTemplate', documentType: 'purchaseOrder' },
-        'Emax':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'EmaxTemplate', documentType: 'purchaseOrder' },
-        'EmaxHtml':  { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'EmaxTemplate', documentType: 'purchaseOrder' },
-        'Retail':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'RetailTemplate', documentType: 'purchaseOrder' },
-        'Dyson':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'DysonTemplate', documentType: 'purchaseOrder' },
-        'Metro':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
-        'Lulu':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'LULUTemplate', documentType: 'purchaseOrder' },
-        'Sharaf':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'SharafTemplate', documentType: 'purchaseOrder' },
-        'SharafDG':  { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'SharafDGTemplate', documentType: 'purchaseOrder' },
-        'Noon':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'NoonTemplate', documentType: 'purchaseOrder' },
-        'Jackys':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'JackysTemplate', documentType: 'purchaseOrder' },
-        'Geekay':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'GeekayTemplate', documentType: 'purchaseOrder' },
-        'GEANT':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'GEANTTemplate', documentType: 'purchaseOrder' },
-        'Extra':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'ExtraTemplate', documentType: 'purchaseOrder' },
-        'Eros':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'ErosTemplate', documentType: 'purchaseOrder' },
-        'Ecity':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'EcityTemplate', documentType: 'purchaseOrder' },
-        'DDF':       { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'DDFTemplate', documentType: 'purchaseOrder' },
-        'Bestvalue': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'BestvalueTemplate', documentType: 'purchaseOrder' },
-        'Almaya':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'AlmayaTemplate', documentType: 'purchaseOrder' },
-        'ACE':       { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'ACETemplate', documentType: 'purchaseOrder' },
-        'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' }
-        // templateId = Document AI'daki template adı. Boş bırakılırsa template olmadan extraction yapılır.
-    };
+    // DOX schema name — shared across all templates
+    var DOX_SCHEMA_NAME = 'Jumbo_OCR_purchaseOrder_schema_with_numbers';
 
     // Get DOX credentials from environment or destination
     function getDoxConfig() {
@@ -2451,22 +2423,15 @@ async function s4Patch(entityWithKey, body) {
             throw new Error('DOX API not configured. Set DOX_API_URL, DOX_AUTH_URL, DOX_CLIENT_ID, DOX_CLIENT_SECRET environment variables or bind document-information-extraction service.');
         }
 
-        // Get template config: templateName parameter takes priority over DOX_TEMPLATE_MAP
-        var templateConfig = DOX_TEMPLATE_MAP[processName] || { documentType: 'purchaseOrder' };
-        // Default schema for all templates
-        var defaultSchema = 'Jumbo_OCR_purchaseOrder_schema_with_numbers';
-        if (templateName) {
-            // Dynamic template from BPA parameter — override the map
-            templateConfig = {
-                schemaName: defaultSchema,
-                templateId: templateName,
-                documentType: 'purchaseOrder'
-            };
-            console.log('DOX: using dynamic templateName="' + templateName + '" from BPA parameter');
-        }
+        // Template config from BPA parameter
+        var templateConfig = {
+            schemaName: DOX_SCHEMA_NAME,
+            templateId: templateName || '',
+            documentType: 'purchaseOrder'
+        };
         console.log('DOX: extracting for process=' + processName +
-                    ' schemaName=' + (templateConfig.schemaName || 'auto') +
-                    ' templateId=' + (templateConfig.templateId || 'auto'));
+                    ' schemaName=' + templateConfig.schemaName +
+                    ' templateName=' + (templateName || 'none'));
 
         // Decode base64 PDF
         var pdfBuffer = Buffer.from(pdfBase64, 'base64');
