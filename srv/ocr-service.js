@@ -527,6 +527,67 @@ this.on('UPDATE', 'OCRItems', async (req) => {
     });
 
     // ============================================================
+    // 2b) extractAndProcess - DOX API extraction + sales order creation
+    //     BPA sends PDF (base64) + processName, CAP does the extraction
+    // ============================================================
+    this.on('extractAndProcess', async (req) => {
+        var processName = req.data.processName || 'Unknown';
+        var logUuid = null;
+        try {
+            console.log('=== extractAndProcess called [' + processName + '] ===');
+
+            var pdfBase64 = req.data.pdfBase64;
+            var pdfName = req.data.pdfName || 'document.pdf';
+            var mailSubject = req.data.mailSubject || '';
+
+            if (!pdfBase64) {
+                return { salesOrderNumber: null, message: 'pdfBase64 is required', success: false, itemCount: 0, missingBarcodes: '' };
+            }
+
+            // 1. Extract document using DOX API
+            console.log('[' + processName + '] Calling DOX API for extraction...');
+            var extractedData = await extractDocumentWithDox(pdfBase64, processName, pdfName);
+            console.log('[' + processName + '] DOX extraction complete');
+
+            // 2. Save log to S/4HANA (same as processAndCreateSalesOrder)
+            var minData = extractMinimalData(extractedData);
+            logUuid = await autoSavePOLog({
+                processName:    processName,
+                pdfName:        pdfName,
+                mailSubject:    mailSubject,
+                purchaseOrder:  minData.purchaseOrder,
+                deliveryDate:   minData.deliveryDate,
+                documentDate:   minData.documentDate,
+                receiverId:     minData.receiverId,
+                currencyCode:   minData.currencyCode,
+                netAmount:      minData.netAmount,
+                grossAmount:    minData.grossAmount,
+                totalVat:       minData.totalVAT,
+                discount:       minData.discount,
+                deliveryAdress: minData.deliveryAdress,
+                vendorAdress:   minData.vendorAdress,
+                lineItems:      minData.lineItems
+            });
+
+            // 3. Use the SAME shared function as triggerLog / processAndCreateSalesOrder
+            var result = await _executeSalesOrderCreation(logUuid, processName);
+            return result;
+
+        } catch (error) {
+            console.error('[' + processName + '] extractAndProcess ERROR: ' + error.message);
+            var errorMsg = extractErrorMessage(error);
+            if (logUuid) await autoUpdatePOLog(logUuid, 'FAILED', '', errorMsg, 0, '');
+            return {
+                salesOrderNumber: null,
+                message: 'Failed: ' + errorMsg,
+                success: false,
+                itemCount: 0,
+                missingBarcodes: ''
+            };
+        }
+    });
+
+    // ============================================================
     // 3) getPOLogs
     // ============================================================
     this.on('getPOLogs', async (req) => {
@@ -2038,6 +2099,226 @@ async function s4Patch(entityWithKey, body) {
                     '" address="' + result.address +
                     '" city="' + result.city + '"');
         return result;
+    }
+
+    // ============================================================
+    // DOX (Document Information Extraction) API INTEGRATION
+    // ============================================================
+
+    // Company → Document AI Template mapping
+    // schemaId: Document AI schema UUID (same for all if using single schema)
+    // templateId: Template UUID specific to each company's PDF format
+    // Update these values from Document AI UI → Schema → Template details
+    var DOX_TEMPLATE_MAP = {
+        'VStart':    { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
+        'Amazon':    { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
+        'Carrefour': { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
+        'Sephora':   { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
+        'Emax':      { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
+        'Retail':    { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
+        'Dyson':     { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
+        'Metro':     { schemaId: '', templateId: '', documentType: 'purchaseOrder' }
+        // Add more companies as needed
+    };
+
+    // Get DOX credentials from environment or destination
+    function getDoxConfig() {
+        // Option 1: Environment variables (set in BTP cockpit or mta.yaml)
+        var env = process.env;
+        if (env.DOX_API_URL && env.DOX_CLIENT_ID && env.DOX_CLIENT_SECRET) {
+            return {
+                apiUrl: env.DOX_API_URL,        // e.g. https://aiservices-dox-xxx.cfapps.eu10.hana.ondemand.com
+                authUrl: env.DOX_AUTH_URL,       // e.g. https://xxx.authentication.eu10.hana.ondemand.com
+                clientId: env.DOX_CLIENT_ID,
+                clientSecret: env.DOX_CLIENT_SECRET
+            };
+        }
+
+        // Option 2: VCAP_SERVICES binding
+        var vcap = env.VCAP_SERVICES ? JSON.parse(env.VCAP_SERVICES) : {};
+        var doxServices = vcap['document-information-extraction'] || [];
+        if (doxServices.length > 0) {
+            var cred = doxServices[0].credentials;
+            return {
+                apiUrl: cred.url,
+                authUrl: cred.uaa.url,
+                clientId: cred.uaa.clientid,
+                clientSecret: cred.uaa.clientsecret
+            };
+        }
+
+        return null;
+    }
+
+    // Get OAuth2 token for DOX API
+    async function getDoxToken(config) {
+        var url = config.authUrl + '/oauth/token';
+        var body = 'grant_type=client_credentials&client_id=' +
+            encodeURIComponent(config.clientId) + '&client_secret=' +
+            encodeURIComponent(config.clientSecret);
+
+        var resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body
+        });
+        if (!resp.ok) {
+            var errText = await resp.text();
+            throw new Error('DOX token error (' + resp.status + '): ' + errText);
+        }
+        var data = await resp.json();
+        return data.access_token;
+    }
+
+    // Upload PDF to DOX and start extraction job
+    async function doxUploadAndExtract(config, token, pdfBuffer, fileName, templateConfig) {
+        // Build multipart form data manually (Node.js compatible)
+        var boundary = '----DoxBoundary' + Date.now();
+        var options = JSON.stringify({
+            schemaId: templateConfig.schemaId || undefined,
+            templateId: templateConfig.templateId || undefined,
+            clientId: 'default',
+            documentType: templateConfig.documentType || 'purchaseOrder',
+            receivedDate: new Date().toISOString().split('T')[0],
+            enrichment: {
+                sender: { top: 5, type: 'businessEntity', subtype: 'supplier' },
+                employee: { type: 'employee' }
+            }
+        });
+
+        // Remove undefined fields from options
+        var optObj = JSON.parse(options);
+        Object.keys(optObj).forEach(function(k) { if (optObj[k] === undefined) delete optObj[k]; });
+        options = JSON.stringify(optObj);
+
+        var parts = [];
+        // Options part
+        parts.push('--' + boundary + '\r\n');
+        parts.push('Content-Disposition: form-data; name="options"\r\n');
+        parts.push('Content-Type: application/json\r\n\r\n');
+        parts.push(options + '\r\n');
+        // File part
+        parts.push('--' + boundary + '\r\n');
+        parts.push('Content-Disposition: form-data; name="file"; filename="' + fileName + '"\r\n');
+        parts.push('Content-Type: application/pdf\r\n\r\n');
+
+        var headerBuf = Buffer.from(parts.join(''));
+        var footerBuf = Buffer.from('\r\n--' + boundary + '--\r\n');
+        var bodyBuffer = Buffer.concat([headerBuf, pdfBuffer, footerBuf]);
+
+        var url = config.apiUrl + '/document/jobs';
+        var resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'multipart/form-data; boundary=' + boundary
+            },
+            body: bodyBuffer
+        });
+
+        if (!resp.ok) {
+            var errText = await resp.text();
+            throw new Error('DOX upload error (' + resp.status + '): ' + errText);
+        }
+        return await resp.json();
+    }
+
+    // Poll DOX job until completion
+    async function doxPollJob(config, token, jobId, maxWaitMs) {
+        maxWaitMs = maxWaitMs || 120000; // 2 minutes max
+        var pollInterval = 3000; // 3 seconds
+        var elapsed = 0;
+
+        while (elapsed < maxWaitMs) {
+            var url = config.apiUrl + '/document/jobs/' + jobId;
+            var resp = await fetch(url, {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
+            });
+            if (!resp.ok) {
+                var errText = await resp.text();
+                throw new Error('DOX poll error (' + resp.status + '): ' + errText);
+            }
+            var data = await resp.json();
+            console.log('DOX job ' + jobId + ' status: ' + data.status);
+
+            if (data.status === 'DONE') return data;
+            if (data.status === 'FAILED') {
+                throw new Error('DOX extraction failed: ' + JSON.stringify(data.errors || data));
+            }
+
+            await new Promise(function(resolve) { setTimeout(resolve, pollInterval); });
+            elapsed += pollInterval;
+        }
+        throw new Error('DOX extraction timeout after ' + maxWaitMs + 'ms');
+    }
+
+    // Map DOX API response to internal extractedData format
+    // DOX returns: { extraction: { headerFields: [{name, value, confidence}], lineItemFields: [[{name, value}]] } }
+    // We need:     { headerFields: { fieldName: [{value}] }, lineItemFields: [{ fieldName: [{value}] }] }
+    function mapDoxResponse(doxResult) {
+        var extraction = doxResult.extraction || {};
+        var mapped = { headerFields: {}, lineItemFields: [] };
+
+        // Map header fields
+        var hdrFields = extraction.headerFields || [];
+        for (var h = 0; h < hdrFields.length; h++) {
+            var hf = hdrFields[h];
+            if (hf.name && hf.value !== undefined && hf.value !== null) {
+                mapped.headerFields[hf.name] = [{ value: String(hf.value), confidence: hf.confidence || 0 }];
+            }
+        }
+
+        // Map line items
+        var lineGroups = extraction.lineItemFields || [];
+        for (var g = 0; g < lineGroups.length; g++) {
+            var group = lineGroups[g];
+            var lineObj = {};
+            for (var f = 0; f < group.length; f++) {
+                var lf = group[f];
+                if (lf.name && lf.value !== undefined && lf.value !== null) {
+                    lineObj[lf.name] = [{ value: String(lf.value), confidence: lf.confidence || 0 }];
+                }
+            }
+            mapped.lineItemFields.push(lineObj);
+        }
+
+        return mapped;
+    }
+
+    // Full DOX extraction pipeline
+    async function extractDocumentWithDox(pdfBase64, processName, fileName) {
+        var config = getDoxConfig();
+        if (!config) {
+            throw new Error('DOX API not configured. Set DOX_API_URL, DOX_AUTH_URL, DOX_CLIENT_ID, DOX_CLIENT_SECRET environment variables or bind document-information-extraction service.');
+        }
+
+        // Get template config for this company
+        var templateConfig = DOX_TEMPLATE_MAP[processName] || { documentType: 'purchaseOrder' };
+        console.log('DOX: extracting for process=' + processName +
+                    ' schemaId=' + (templateConfig.schemaId || 'auto') +
+                    ' templateId=' + (templateConfig.templateId || 'auto'));
+
+        // Decode base64 PDF
+        var pdfBuffer = Buffer.from(pdfBase64, 'base64');
+        console.log('DOX: PDF size=' + pdfBuffer.length + ' bytes, fileName=' + fileName);
+
+        // Get token
+        var token = await getDoxToken(config);
+        console.log('DOX: OAuth token acquired');
+
+        // Upload and start extraction
+        var job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, templateConfig);
+        console.log('DOX: job created id=' + job.id);
+
+        // Poll for result
+        var result = await doxPollJob(config, token, job.id);
+        console.log('DOX: extraction complete, headerFields=' +
+                    (result.extraction?.headerFields?.length || 0) +
+                    ' lineItems=' + (result.extraction?.lineItemFields?.length || 0));
+
+        // Map to internal format
+        return mapDoxResponse(result);
     }
 
     function extractKeyFromWhere(where, fieldName) {

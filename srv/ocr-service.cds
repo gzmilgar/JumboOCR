@@ -72,6 +72,19 @@ service OCRService {
     };
 
 
+    action extractAndProcess(
+        pdfBase64   : String,
+        processName : String,
+        pdfName     : String,
+        mailSubject : String
+    ) returns {
+        salesOrderNumber : String;
+        message          : String;
+        success          : Boolean;
+        itemCount        : Integer;
+        missingBarcodes  : String;
+    };
+
     action triggerLog(uuid : String) returns {
         success    : Boolean;
         message    : String;
