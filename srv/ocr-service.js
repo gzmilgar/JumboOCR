@@ -2128,14 +2128,19 @@ async function s4Patch(entityWithKey, body) {
     // Update these values from Document AI UI → Schema → Template details
     var DOX_TEMPLATE_MAP = {
         'VStar':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'VstarTemplate', documentType: 'purchaseOrder' },
-        'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
-        'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'AmazonTemplate', documentType: 'purchaseOrder' },
+        'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'CarrefourTemplate', documentType: 'purchaseOrder' },
         'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
-        'Emax':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
-        'Retail':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Emax':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'EmaxTemplate', documentType: 'purchaseOrder' },
+        'EmaxHtml':  { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'EmaxTemplate', documentType: 'purchaseOrder' },
+        'Retail':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'RetailTemplate', documentType: 'purchaseOrder' },
         'Dyson':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
-        'Metro':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' }
-        // Add more companies as needed — set templateId to the template name in Document AI
+        'Metro':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: '', documentType: 'purchaseOrder' },
+        'Lulu':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'LuluTemplate', documentType: 'purchaseOrder' },
+        'Sharaf':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'SharafTemplate', documentType: 'purchaseOrder' },
+        'SharafDG':  { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', schemaName: 'Jumbo_OCR_purchaseOrder_schema_with_numbers', templateId: 'SharafDGTemplate', documentType: 'purchaseOrder' }
+        // templateId = Document AI'daki template adı. Boş bırakılırsa template olmadan extraction yapılır.
+        // Yeni şirket eklemek için: Document AI'da template oluşturun, adını buraya yazın.
     };
 
     // Get DOX credentials from environment or destination
