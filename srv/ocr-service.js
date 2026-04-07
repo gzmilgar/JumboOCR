@@ -2110,14 +2110,14 @@ async function s4Patch(entityWithKey, body) {
     // templateId: Template UUID specific to each company's PDF format
     // Update these values from Document AI UI → Schema → Template details
     var DOX_TEMPLATE_MAP = {
-        'VStart':    { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
-        'Amazon':    { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
-        'Carrefour': { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
-        'Sephora':   { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
-        'Emax':      { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
-        'Retail':    { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
-        'Dyson':     { schemaId: '', templateId: '', documentType: 'purchaseOrder' },
-        'Metro':     { schemaId: '', templateId: '', documentType: 'purchaseOrder' }
+        'VStart':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '2fd68b80-0995-4c5b-b63a-a635e2701105', documentType: 'purchaseOrder' },
+        'Amazon':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
+        'Carrefour': { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
+        'Sephora':   { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
+        'Emax':      { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
+        'Retail':    { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
+        'Dyson':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' },
+        'Metro':     { schemaId: 'f85fb8fb-d6d6-4383-8400-cb8a34d09dae', templateId: '', documentType: 'purchaseOrder' }
         // Add more companies as needed
     };
 
