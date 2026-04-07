@@ -1244,7 +1244,8 @@ async function s4Patch(entityWithKey, body) {
         var lineItems = data.lineItemFields || [];
         for (var i = 0; i < lineItems.length; i++) {
             var line = lineItems[i];
-            var barcode = String(getField(line, 'barcode')).replace(/\s/g, '').trim();
+            // Try barcode first, then fall back to customerMaterialNumber (often EAN/barcode)
+            var barcode = String(getField(line, 'barcode') || getField(line, 'customerMaterialNumber') || '').replace(/\s/g, '').trim();
             barcode = barcode.replace(/^0+/, '');
             if (!barcode) continue;
             if (!seen[barcode]) {
@@ -1593,7 +1594,7 @@ async function s4Patch(entityWithKey, body) {
         var matkl_fam = '';
 
         for (var m = 0; m < lineItems.length && !firstMaterial; m++) {
-            var barcode = String(getField(lineItems[m], 'barcode')).replace(/\s/g, '').replace(/^0+/, '');
+            var barcode = String(getField(lineItems[m], 'barcode') || getField(lineItems[m], 'customerMaterialNumber') || '').replace(/\s/g, '').replace(/^0+/, '');
             if (barcode && eanProductMap[barcode] && eanProductMap[barcode].material) {
                 firstMaterial = eanProductMap[barcode].material;
                 firstProductGroup = eanProductMap[barcode].productGroup || '';
@@ -1603,6 +1604,12 @@ async function s4Patch(entityWithKey, body) {
                            ' ProductGroup=' + firstProductGroup + ' Brand=' + firstBrand +
                            ' MATKL_FAM=' + matkl_fam);
                 break;
+            }
+            // If no barcode match, try DOX materialNumber directly
+            var doxMat = String(getField(lineItems[m], 'materialNumber') || '').replace(/\s/g, '').trim();
+            if (!firstMaterial && doxMat) {
+                firstMaterial = doxMat;
+                console.log('buildPayload: First Material from DOX materialNumber=' + firstMaterial);
             }
         }
 
@@ -1754,17 +1761,25 @@ async function s4Patch(entityWithKey, body) {
 
         for (var i = 0; i < lineItems.length; i++) {
             var line = lineItems[i];
-            var barcode2 = String(getField(line, 'barcode')).replace(/\s/g, '').replace(/^0+/, '');
+            // Try barcode first, then customerMaterialNumber as fallback
+            var barcode2 = String(getField(line, 'barcode') || getField(line, 'customerMaterialNumber') || '').replace(/\s/g, '').replace(/^0+/, '');
             var description = String(getField(line, 'description') || '').trim();
             var quantity = getField(line, 'quantity');
             var unitPrice = getField(line, 'unitPrice');
+            // Also check if DOX provided materialNumber directly (SAP material code)
+            var doxMaterialNumber = String(getField(line, 'materialNumber') || '').replace(/\s/g, '').trim();
 
-            if (!barcode2 && description.length > 100) continue;
+            if (!barcode2 && !doxMaterialNumber && description.length > 100) continue;
 
             var material = '';
             if (barcode2 && eanProductMap[barcode2]) material = eanProductMap[barcode2].material;
+            // If no barcode match, use DOX materialNumber directly as SAP material
+            if (!material && doxMaterialNumber) {
+                material = doxMaterialNumber;
+                console.log('buildPayload: Row ' + (i + 1) + ' using DOX materialNumber directly: ' + material);
+            }
             if (!material) {
-                errors.push('Row ' + (i + 1) + ': Material not found (barcode: ' + barcode2 + ')');
+                errors.push('Row ' + (i + 1) + ': Material not found (barcode: ' + barcode2 + ', materialNumber: ' + doxMaterialNumber + ')');
                 continue;
             }
 
