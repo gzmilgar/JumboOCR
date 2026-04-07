@@ -256,6 +256,106 @@
         }
       }
     },
+    "/extractAndProcess": {
+      "post": {
+        "summary": "Invokes action extractAndProcess",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_extractAndProcess"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "pdfBase64": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "processName": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "pdfName": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "mailSubject": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/triggerLog": {
+      "post": {
+        "summary": "Invokes action triggerLog",
+        "tags": [
+          "Service Operations"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "$ref": "#/components/schemas/OCRService.return_OCRService_triggerLog"
+                    }
+                  ],
+                  "nullable": true
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/error"
+          }
+        },
+        "requestBody": {
+          "description": "Action parameters",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "uuid": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/retryPOLog": {
       "post": {
         "summary": "Invokes action retryPOLog",
@@ -549,6 +649,51 @@
             "nullable": true
           },
           "missingBarcodes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OCRService.return_OCRService_extractAndProcess": {
+        "title": "return_OCRService_extractAndProcess",
+        "type": "object",
+        "properties": {
+          "salesOrderNumber": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "success": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "itemCount": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "missingBarcodes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "OCRService.return_OCRService_triggerLog": {
+        "title": "return_OCRService_triggerLog",
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "salesOrder": {
             "type": "string",
             "nullable": true
           }
