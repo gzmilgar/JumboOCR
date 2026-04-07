@@ -2309,8 +2309,50 @@ async function s4Patch(entityWithKey, body) {
         var token = await getDoxToken(config);
         console.log('DOX: OAuth token acquired');
 
-        // Upload and start extraction
-        var job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, templateConfig);
+        // List available templates for debugging
+        try {
+            var schemaId = templateConfig.schemaId;
+            if (schemaId) {
+                var listUrl = config.apiUrl + '/schemas/' + schemaId + '/versions/1/templates';
+                var listResp = await fetch(listUrl, {
+                    method: 'GET',
+                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' }
+                });
+                if (listResp.ok) {
+                    var templates = await listResp.json();
+                    console.log('DOX: Available templates for schema ' + schemaId + ':');
+                    var tplList = templates.results || templates.value || templates || [];
+                    if (Array.isArray(tplList)) {
+                        for (var t = 0; t < tplList.length; t++) {
+                            console.log('  - id=' + (tplList[t].id || tplList[t].templateId) +
+                                       ' name=' + (tplList[t].name || tplList[t].templateName || ''));
+                        }
+                    } else {
+                        console.log('  Templates response: ' + JSON.stringify(templates).substring(0, 500));
+                    }
+                }
+            }
+        } catch (listErr) {
+            console.log('DOX: Could not list templates: ' + listErr.message);
+        }
+
+        // Upload and start extraction — try with template first, fallback without
+        var job;
+        try {
+            job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, templateConfig);
+        } catch (uploadErr) {
+            if (uploadErr.message && uploadErr.message.indexOf('E31') !== -1 && templateConfig.templateId) {
+                // Template not found — retry without templateId (auto-detection)
+                console.log('DOX: Template not found (E31), retrying without templateId...');
+                var fallbackConfig = {
+                    schemaId: templateConfig.schemaId,
+                    documentType: templateConfig.documentType
+                };
+                job = await doxUploadAndExtract(config, token, pdfBuffer, fileName, fallbackConfig);
+            } else {
+                throw uploadErr;
+            }
+        }
         console.log('DOX: job created id=' + job.id);
 
         // Poll for result
