@@ -77,7 +77,8 @@ service OCRService {
         processName  : String,
         pdfName      : String,
         mailSubject  : String,
-        templateName : String
+        templateName : String,
+        schemaName   : String
     ) returns {
         salesOrderNumber : String;
         message          : String;

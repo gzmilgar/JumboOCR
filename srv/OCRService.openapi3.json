@@ -308,6 +308,10 @@
                   "templateName": {
                     "type": "string",
                     "nullable": true
+                  },
+                  "schemaName": {
+                    "type": "string",
+                    "nullable": true
                   }
                 }
               }
